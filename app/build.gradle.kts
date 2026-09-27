@@ -52,11 +52,23 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    androidResources { noCompress += listOf("ptl", "pte", "json", "bin") }
+    androidResources {
+        noCompress += listOf("ptl", "pte", "json", "bin")
+        // silero_ru.json и eyo_safe.txt в APK не нужны: приложение читает собранный из них stress.bin (задача stressBin)
+        ignoreAssetsPattern = "!.svn:!.git:!.ds_store:!*.scc:.*:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~:!silero_ru.json:!eyo_safe.txt"
+    }
     testOptions { unitTests.isReturnDefaultValues = true }
     // libfbjni/libc++_shared есть и в pytorch_android_lite, и в executorch; из lite годятся обоим
     packaging { jniLibs.useLegacyPackaging = false; jniLibs.pickFirsts += listOf("lib/*/libfbjni.so", "lib/*/libc++_shared.so") }
 }
+
+// Словари ударений и «ё» одним бинарным файлом: mmap вместо разбора json при запуске процесса (StressBin)
+val stressBin = tasks.register<StressBinTask>("stressBin") {
+    json.set(file("src/main/assets/silero/silero_ru.json"))
+    eyo.set(file("src/main/assets/eyo_safe.txt"))
+    outDir.set(layout.buildDirectory.dir("generated/stressBin"))
+}
+androidComponents { onVariants { it.sources.assets?.addGeneratedSourceDirectory(stressBin, StressBinTask::outDir) } }
 
 dependencies {
     implementation("org.pytorch:pytorch_android_lite:2.1.0")

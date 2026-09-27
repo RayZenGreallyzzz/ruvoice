@@ -1,6 +1,9 @@
 package ru.kost.ruvoice
 
 import java.io.File
+import java.io.RandomAccessFile
+import java.nio.channels.FileChannel
+import ru.kost.ruvoice.bin.StressBin
 import ru.kost.ruvoice.text.Replacements
 
 /**
@@ -16,10 +19,26 @@ object DictCache {
 
     private fun sig(files: List<File>) = files.map { "${it.path}|${it.lastModified()}|${it.length()}" }
 
+    // у ударений и замен свои замки: прогрев сервиса разбирает их параллельно
+    private val stressLock = Any()
+    private val replaceLock = Any()
+
     /** Слияние включённых списков ударений: при одинаковом слове побеждает более поздний файл. */
-    @Synchronized fun stress(files: List<File>, onProgress: ((Int) -> Unit)? = null): Map<String, String> {
+    fun stress(files: List<File>, onProgress: ((Int) -> Unit)? = null, disk: File? = null): Map<String, String> = synchronized(stressLock) {
         val s = sig(files)
         stressSnap?.takeIf { it.sig == s }?.let { return it.value }
+        val t = System.nanoTime()
+        // Разобранное — ещё и на диске (disk): системный словарь — 100 тыс. строк, ~1,5–2,5 с разбора на A32 в
+        // первой фразе после запуска процесса; с диска — mmap и бинарный поиск. Подпись в файле — та же sig.
+        val tag = s.joinToString("\n")
+        disk?.takeIf { it.exists() }?.let { f -> runCatching {
+            val (fileTag, map) = StressBin.strings(RandomAccessFile(f, "r").channel.use { it.map(FileChannel.MapMode.READ_ONLY, 0, it.size()) })
+            if (fileTag == tag) {
+                android.util.Log.i("RuVoice", "словари ударений с диска: ${map.size} слов, ${(System.nanoTime() - t) / 1_000_000} мс")
+                onProgress?.invoke(100)
+                return map.also { stressSnap = Snap(s, it) }
+            }
+        } }
         val lines = files.flatMap { it.readLines() }
         val map = HashMap<String, String>(lines.size * 2)
         for ((i, line) in lines.withIndex()) {
@@ -28,16 +47,20 @@ object DictCache {
             map[w.lowercase()] = v.lowercase()
         }
         onProgress?.invoke(100)
+        android.util.Log.i("RuVoice", "словари ударений: ${lines.size} строк, ${(System.nanoTime() - t) / 1_000_000} мс")
+        disk?.let { f -> runCatching { File(f.path + ".tmp").apply { writeBytes(StressBin.writeStrings(tag, map)) }.renameTo(f) } }
         return map.also { stressSnap = Snap(s, it) }
     }
 
     /** Слияние включённых списков замен: строки всех файлов подряд, дальше Replacements.parse. */
-    @Synchronized fun replacements(files: List<File>, onProgress: ((Int) -> Unit)? = null): Replacements {
+    fun replacements(files: List<File>, onProgress: ((Int) -> Unit)? = null): Replacements = synchronized(replaceLock) {
         val s = sig(files)
         replaceSnap?.takeIf { it.sig == s }?.let { return it.value }
         // 62k строк: ~80 мс чтение + ~350–700 мс разбор на среднем телефоне (аллокации на ART)
+        val t = System.nanoTime()
         val lines = files.flatMap { it.readLines() }
         val r = Replacements.parse(lines, onProgress?.let { cb -> { done -> cb(if (lines.isEmpty()) 100 else done * 100 / lines.size) } })
+        android.util.Log.i("RuVoice", "словари замен: ${lines.size} строк, ${(System.nanoTime() - t) / 1_000_000} мс")
         return r.also { replaceSnap = Snap(s, it) }
     }
 

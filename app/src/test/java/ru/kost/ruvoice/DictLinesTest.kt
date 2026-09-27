@@ -8,6 +8,18 @@ class DictLinesTest {
         assertEquals("творог" to "твор+ог", DictLines.parseStress("творог твор+ог"))
     }
 
+    @Test fun parseStressSameAsSplitBySpaces() {
+        // разбор без Regex — ровно как прежний split(Regex("\\s+")): NBSP не пробел, табуляция — пробел
+        fun old(line: String): Pair<String, String>? {
+            val t = line.trim()
+            if (t.isEmpty() || t.startsWith("#")) return null
+            val p = t.split(Regex("\\s+")); return if (p.size < 2) null else p[0] to p[1]
+        }
+        val lines = listOf("а б", "а\tб в", "а б", "а \u000B\u000Cб", "одно", " # не коммент", "а  б в", "\tа\t\tб\t") +
+            java.io.File(TestData.root(), "app/src/main/assets/dicts/stress/Системный.txt").readLines()
+        for (l in lines) assertEquals(l, old(l), DictLines.parseStress(l))
+    }
+
     @Test fun parseStressTrimsExtraSpaces() {
         assertEquals("творог" to "твор+ог", DictLines.parseStress("   творог    твор+ог   "))
     }

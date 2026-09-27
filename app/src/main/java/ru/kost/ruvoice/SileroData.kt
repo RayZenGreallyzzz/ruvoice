@@ -1,20 +1,37 @@
 package ru.kost.ruvoice
 
 import org.json.JSONObject
+import ru.kost.ruvoice.bin.StressBin
+import java.nio.ByteBuffer
 
-class SileroData(json: String) {
+/** Словарь из stress.bin (StressBin): по ключу, без разбора в память. Его и используют только так — get, in, isEmpty. */
+class Lookup<V>(private val t: StressBin.Table, private val decode: (StressBin.Table, Int) -> V) {
+    operator fun get(key: String): V? = t.find(key).let { if (it < 0) null else decode(t, it) }
+    operator fun contains(key: String) = t.find(key) >= 0
+    fun getValue(key: String): V = get(key) ?: throw NoSuchElementException(key)
+    fun isEmpty() = t.size == 0
+    val size get() = t.size
+}
+
+/** Данные штатной модели и ударений: stress.bin — mmap ассета в приложении, в JVM-тестах собран в памяти из json. */
+class SileroData(bin: StressBin.File) {
+    /** Из silero_ru.json (тесты): stress.bin в памяти, без словаря «ё». */
+    constructor(json: String) : this(StressBin.File(ByteBuffer.wrap(StressBin.write(json, emptySequence()))))
+
     val sym: Symbols
     val symbolToId: Map<Char, Int> get() = sym.symbolToId
     val alphabet: Set<Char> get() = sym.alphabet
     val speakers: Map<String, Int>
-    val exceptions: Map<String, IntArray>
-    val homodict: Map<String, List<String>>
+    val exceptions: Lookup<IntArray>
+    val homodict: Lookup<List<String>>
     /** Фразы Silero Stress: слово → [(фраза, вариант с «+»)], порядок важен — длинные фразы раньше. */
-    val phrases: Map<String, List<Pair<String, String>>>
+    val phrases: Lookup<List<Pair<String, String>>>
     /** Грамматические омографы (AOT): форма → {g: род. ед., p: им./вин. мн., l: второй предложный, n: сущ., v: глагол,
      * i: инфинитив несов. вида} с «+». */
-    val gram: Map<String, Map<String, String>>
-    val bertVocab: Map<String, Int>
+    val gram: Lookup<Map<String, String>>
+    val bertVocab: Lookup<Int>
+    /** Словарь «ё» (eyo_safe.txt) из того же файла; YoDict поверх него (StressBin.yoRestore). */
+    val yo: StressBin.Table
     val bertCls: Int
     val bertSep: Int
     val bertPad: Int
@@ -27,24 +44,17 @@ class SileroData(json: String) {
     val tagRe: Regex
 
     init {
-        // Локальные, не сохраняются полями — разобранное дерево (2.5 МБ) не остаётся в памяти.
-        val o = JSONObject(json)
+        val o = JSONObject(bin.head)
         sym = Symbols.fromJson(o)
         speakers = o.getJSONObject("speakers").let { j -> j.keys().asSequence().associateWith { j.getInt(it) } }
-        exceptions = o.getJSONObject("exceptions").let { j ->
-            j.keys().asSequence().associateWith { k -> val a = j.getJSONArray(k); intArrayOf(a.getInt(0), a.getInt(1)) }
-        }
-        homodict = o.getJSONObject("homodict").let { j ->
-            j.keys().asSequence().associateWith { k -> val a = j.getJSONArray(k); List(a.length()) { a.getString(it) } }
-        }
-        phrases = o.getJSONObject("phrases").let { j ->
-            j.keys().asSequence().associateWith { k -> val a = j.getJSONArray(k); List(a.length()) { a.getJSONArray(it).let { p -> p.getString(0) to p.getString(1) } } }
-        }
-        gram = o.getJSONObject("gram").let { j ->
-            j.keys().asSequence().associateWith { k -> val e = j.getJSONObject(k); e.keys().asSequence().associateWith { e.getString(it) } }
-        }
+        fun strs(t: StressBin.Table, p: Int, n: Int): List<String> { var q = p; return List(n) { t.str(q).also { q = it.second }.first } }
+        exceptions = Lookup(bin.table("exceptions")) { t, p -> intArrayOf(t.int(p), t.int(p, 1)) }
+        homodict = Lookup(bin.table("homodict")) { t, p -> strs(t, p + 1, t.u8(p)) }
+        phrases = Lookup(bin.table("phrases")) { t, p -> strs(t, p + 2, t.u16(p) * 2).chunked(2) { it[0] to it[1] } }
+        gram = Lookup(bin.table("gram")) { t, p -> strs(t, p + 1, t.u8(p) * 2).chunked(2) { it[0] to it[1] }.toMap() }
+        bertVocab = Lookup(bin.table("bert_vocab")) { t, p -> t.int(p) }
+        yo = bin.table("yo")
         val bert = o.getJSONObject("bert")
-        bertVocab = bert.getJSONObject("vocab").let { j -> j.keys().asSequence().associateWith { j.getInt(it) } }
         bertCls = bert.getInt("cls"); bertSep = bert.getInt("sep"); bertPad = bert.getInt("pad")
         bertUnk = bert.getInt("unk"); bertHomoStart = bert.getInt("homo_start"); bertHomoEnd = bert.getInt("homo_end")
         type2id = o.getJSONObject("type2id").let { j -> j.keys().asSequence().associateWith { j.getInt(it) } }

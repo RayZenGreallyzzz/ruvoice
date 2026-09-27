@@ -160,7 +160,7 @@ class Prefs(private val context: Context) {
     }
 
     /** Слитые включённые списки ударений, из кэша процесса. */
-    fun userDict(): Map<String, String> = DictCache.stress(enabledDictFiles(Dicts.Kind.STRESS))
+    fun userDict(): Map<String, String> = DictCache.stress(enabledDictFiles(Dicts.Kind.STRESS), disk = File(context.cacheDir, "userdict.bin"))
 
     fun replacements(): Replacements = DictCache.replacements(enabledDictFiles(Dicts.Kind.REPLACE))
 

@@ -10,13 +10,18 @@ import ru.kost.ruvoice.text.Replacements
 object DictLines {
     private const val VOWELS = "аеёиоуыэюя"
 
-    /** «слово вариант» → (слово, вариант); пустые, #-строки и строки без второго слова — null. */
+    /** «слово вариант» → (слово, вариант); пустые, #-строки и строки без второго слова — null.
+     * Без Regex: системный словарь — 100 тыс. строк, split по «\s+» стоил секунды первой фразе после запуска.
+     * Пробел — как \s в Java: ASCII-пробел, \t, \n, \u000B, \f, \r. */
     fun parseStress(line: String): Pair<String, String>? {
         val t = line.trim()
         if (t.isEmpty() || t.startsWith("#")) return null
-        val parts = t.split(Regex("\\s+"))
-        if (parts.size < 2) return null
-        return parts[0] to parts[1]
+        fun space(c: Char) = c == ' ' || c in '\t'..'\r'
+        var i = 0; while (i < t.length && !space(t[i])) i++
+        if (i == t.length) return null
+        var j = i; while (space(t[j])) j++
+        var k = j; while (k < t.length && !space(t[k])) k++
+        return t.substring(0, i) to t.substring(j, k)
     }
 
     /** Строка для сохранения: слово с «+» перед гласной по индексу символа, обе части lowercase. */

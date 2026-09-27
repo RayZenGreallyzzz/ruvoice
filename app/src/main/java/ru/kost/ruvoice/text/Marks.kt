@@ -26,7 +26,8 @@ object Marks {
     fun frames(pauseMs: Int): Long = 10L + Math.round(pauseMs / 12.5)
 
     /** Маркеры → пробелы той же длины: слова остаются на своих смещениях в исходном тексте. */
-    fun blank(text: String): String = Regex("\\{(?:pause:\\d+|prosody(?::\\d+:\\d+)?)\\}").replace(text) { " ".repeat(it.value.length) }
+    fun blank(text: String): String = markerRe.replace(text) { " ".repeat(it.value.length) }
+    private val markerRe = Regex("\\{(?:pause:\\d+|prosody(?::\\d+:\\d+)?)\\}")
 
     /** Ключ слова для сопоставления: буквы и цифры, без «+», регистра и «ё». */
     fun key(token: String) = nonKey.replace(token, "").lowercase().replace('ё', 'е')

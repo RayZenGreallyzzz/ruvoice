@@ -8,6 +8,7 @@ import org.pytorch.LitePyTorchAndroid
 import org.pytorch.Module
 import org.pytorch.Tensor
 import org.pytorch.executorch.EValue
+import ru.kost.ruvoice.bin.StressBin
 import ru.kost.ruvoice.text.Emoji
 import ru.kost.ruvoice.text.Morph
 import ru.kost.ruvoice.text.Normalizer
@@ -206,40 +207,32 @@ class SileroModels(private val context: Context) : StressModels {
         fun data(context: Context): SileroData = shared ?: synchronized(this) {
             shared ?: run {
                 val ctx = context.applicationContext
-                // eyo_safe от json не зависит, и оба по ~5 с на A32 — параллельно
-                val yo = java.util.concurrent.FutureTask {
-                    runCatching { YoDict.open(ctx) }.onFailure { e -> Log.e(TAG, "eyo_safe.txt не открылся", e) }.getOrNull()
-                }.also { Thread(it, "eyo_safe").start() }
-                val d = SileroData(ctx.assets.open("silero/silero_ru.json").bufferedReader().readText())
+                val t = System.nanoTime()
+                val d = SileroData(StressBin.File(asset(ctx, "silero/stress.bin")))
+                Log.i(TAG, "stress.bin: ${(System.nanoTime() - t) / 1_000_000} мс")
                 // Морфология для нормализатора — mmap ассета, один раз на процесс.
                 Normalizer.morph = runCatching { Morph.open(ctx) }.onFailure { e -> Log.e(TAG, "morph.bin не открылся", e) }.getOrNull()
+                YoDict.shared = YoDict(d.yo)
                 HardE.shared = runCatching { HardE.open(ctx) }.onFailure { e -> Log.e(TAG, "hard_e.txt не открылся", e) }.getOrNull()
                 Emoji.shared = runCatching { Emoji.open(ctx) }.onFailure { e -> Log.e(TAG, "emoji_ru.tsv не открылся", e) }.getOrNull()
                 SymbolNames.cldr = runCatching { SymbolNames.open(ctx) }.onFailure { e -> Log.e(TAG, "symbols_ru.tsv не открылся", e) }.getOrNull()
-                YoDict.shared = yo.get()
                 d.also { shared = it }
             }
         }
 
-        @Volatile private var speakerNames: Set<String>? = null
-        /** Имена штатных голосов без разбора всего silero_ru.json (4,6 МБ, ~5 с на A32): система при подключении читалки
-         * спрашивает голос по умолчанию (onGetDefaultVoiceNameFor) и шлёт первую фразу только после ответа.
-         * «speakers» в начале файла — читаем до него. */
-        fun speakers(context: Context): Set<String> = shared?.speakers?.keys ?: speakerNames ?: run {
-            val head = StringBuilder()
-            context.applicationContext.assets.open("silero/silero_ru.json").bufferedReader().use { r ->
-                val buf = CharArray(8192)
-                while (true) {
-                    val n = r.read(buf); if (n < 0) break
-                    head.append(buf, 0, n)
-                    val i = head.indexOf("\"speakers\"")
-                    if (i >= 0 && head.indexOf("}", i) >= 0) break
-                }
-            }
-            val i = head.indexOf("\"speakers\"")
-            if (i < 0) return data(context).speakers.keys
-            val o = org.json.JSONObject(head.substring(head.indexOf("{", i), head.indexOf("}", i) + 1))
-            o.keys().asSequence().toSet().also { speakerNames = it }
+        /** mmap несжатого ассета (build.gradle noCompress «bin»); сжатый — читаем целиком. */
+        private fun asset(ctx: Context, name: String): java.nio.ByteBuffer = try {
+            ctx.assets.openFd(name).use { fd -> fd.createInputStream().channel.use { it.map(java.nio.channels.FileChannel.MapMode.READ_ONLY, fd.startOffset, fd.length) } }
+        } catch (e: java.io.IOException) {
+            Log.w(TAG, "$name без mmap, читаем целиком: $e")
+            java.nio.ByteBuffer.wrap(ctx.assets.open(name).use { it.readBytes() })
         }
+
+        @Volatile private var speakerNames: Set<String>? = null
+        /** Имена штатных голосов из заголовка stress.bin — без data(): система при подключении читалки спрашивает
+         * голос по умолчанию и шлёт первую фразу только после ответа, а data() ещё и инициализирует Normalizer (~1,4 с). */
+        fun speakers(context: Context): Set<String> = shared?.speakers?.keys ?: speakerNames
+            ?: org.json.JSONObject(StressBin.File(asset(context.applicationContext, "silero/stress.bin")).head).getJSONObject("speakers")
+                .keys().asSequence().toSet().also { speakerNames = it }
     }
 }

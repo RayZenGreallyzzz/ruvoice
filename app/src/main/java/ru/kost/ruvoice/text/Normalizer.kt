@@ -256,7 +256,8 @@ object Normalizer {
 
     // 2. Сноски вида «[1]» — вырезаются, двойной пробел на их месте схлопывается.
     private val footnoteRe = Regex("""\[\d+\]""")
-    private fun removeFootnotes(text: String) = footnoteRe.replace(text, "").replace(Regex(" {2,}"), " ")
+    private val doubleSpaces = Regex(" {2,}")
+    private fun removeFootnotes(text: String) = footnoteRe.replace(text, "").replace(doubleSpaces, " ")
 
     // 3. Римские цифры: «xx век» → «20-м веке» → (после numberRe) «двадцатом веке».
     // Слово из латинских «римских» букв конвертируем, только если рядом есть слово-триггер
@@ -433,6 +434,7 @@ object Normalizer {
         "после", "вокруг", "среди", "между", "перед", "при", "про", "обо", "или", "как", "что", "это", "все", "уже", "ещё",
         "еще", "лишь", "даже", "если", "когда", "где", "там", "тут", "так", "ведь", "только", "потом", "затем", "зато")
     private val romanAfterWordRe = Regex("""^\s+(\p{L}+\.?)""")
+    private val romanNounAfterRe by lazy { Regex("^$romanNounAfterAlt$", RegexOption.IGNORE_CASE) }
     private val romanNounBeforeRe = Regex("^$romanNounBeforeAlt$")
     private val femaleStems = setOf("екатерин", "елизавет", "анн", "мари", "виктори", "изабелл", "матильд", "иоанн", "хуан",
         "маргарит", "кристин", "христин", "ульрик", "беатрикс", "вильгельмин", "юлиан", "луиз", "елен", "ирин", "феодор",
@@ -459,7 +461,7 @@ object Normalizer {
             if (explicit.isNotEmpty()) return@replace "$name ${romanToInt(lower)}-$explicit"
             // Следом «века»/«в.»/«вв.» («Европа XIX в.») — отдать romanNumerals(), там это век.
             val next = romanAfterWordRe.find(s.substring(m.range.last + 1))?.groupValues?.get(1)?.lowercase()
-            if (next != null && Regex("^$romanNounAfterAlt$", RegexOption.IGNORE_CASE).matches(next)) return@replace m.value
+            if (next != null && romanNounAfterRe.matches(next)) return@replace m.value
             val (female, case) = nameGenderCase(name)
             "$name ${romanToInt(lower)}-${ordSuffixByCase.getValue(if (female) 'f' else 'm')[case.ordinal]}"
         }

@@ -274,18 +274,27 @@ class SileroTtsService : TextToSpeechService() {
     }
 
     private fun warmUp() {
-        // словари разбираются раз на процесс; большие списки — секунда на телефоне, лучше
-        // потратить её сейчас, чем на первой фразе
-        prefs.userDict(); prefs.replacements()
-        // греем тройку голоса из настроек, а не штатную: иначе первый запрос перегружает 90 МБ
-        val v = currentSpeaker() ?: return   // lite без пака: голосов нет
-        models.resident = srHold()
-        synchronized(models) {
-            models.ensureLoaded(v.pack)
+        // Первая фраза после запуска процесса ждёт данные с Normalizer (~1,3 с на A32), модель с акцентором (~1,6 с) и
+        // словари замен (~0,7 с). Модель — здесь сразу (нативная загрузка, GC не мешает), словари — вторым потоком,
+        // данные готовит поток самой фразы. Больше потоков на Java-разборе на A32 выходило медленнее: упирается в GC.
+        val dicts = Thread { runCatching { prefs.userDict(); prefs.replacements() }.onFailure { Log.e(SileroModels.TAG, "прогрев", it) } }.apply { start() }
+        // греем тройку голоса из настроек, а не штатную: иначе первый запрос перегружает 90 МБ; пак — по имени, без data
+        val name = currentName() ?: return   // lite без пака: голосов нет
+        models.ensureLoaded(packOf(name))
+        dicts.join()
+        // фраза уже пришла — она сама и прогреет, а прогревочный forward держал бы модель, пока она ждёт
+        if (generation == 0) currentSpeaker()?.let { v -> synchronized(models) {
             val seq = v.sym.sequence("прив+ет.")
             models.synthesize(seq, v.id, prefs.sampleRate, FloatArray(seq.size) { 1f }, FloatArray(seq.size) { 1f }, LongArray(seq.size), LongArray(seq.size), emptyMap(), v.types)
-        }
+        } }
         scheduleUnload()
+    }
+
+    /** Пак голоса по имени — как Speaker.resolve, без SileroData: null — штатная модель. */
+    private fun packOf(name: String): Pack? {
+        val i = name.indexOf('/')
+        if (i >= 0) return packs().firstOrNull { it.id == name.substring(0, i) }
+        return if (Speaker.builtin) null else packs().firstOrNull { it.id == Speaker.RU_PACK }
     }
 
     /** Снятие foreground после простоя — отдельно от выгрузки моделей: та может быть выключена
@@ -492,7 +501,7 @@ class SileroTtsService : TextToSpeechService() {
             val srcText = reqText.let { if (rules.on("ssml") && Ssml.isSsml(it)) Ssml.blankTags(it) else it }
                 .let { Marks.blank(it) }
             // смещения — в тексте клиента: подставленное из TtsSpan слово указывает на свой знак
-            val srcWords = Regex("\\S+").findAll(srcText).map { Triple(Marks.key(it.value), spoken.orig(it.range.first), spoken.orig(it.range.last) + 1) }.toList()
+            val srcWords = nonSpace.findAll(srcText).map { Triple(Marks.key(it.value), spoken.orig(it.range.first), spoken.orig(it.range.last) + 1) }.toList()
             val matcher = Marks.Matcher(srcWords.map { it.first })
             val recorder = cacheKey?.let { PhraseCache.Recorder() }
             var enCount = 0
@@ -512,7 +521,7 @@ class SileroTtsService : TextToSpeechService() {
                 Pcm.gain(audio, Pcm.matchGain(sileroLevel, Pcm.voicedRms(audio, sr)) * enVolume * volume)
                 Pcm.fadeEdges(audio, sr, 5)
                 enCount++
-                return SegOut.Proxied(Pcm.toPcm16(audio), Regex("\\S+").findAll(text).map { Marks.key(it.value) to it.range.first.toDouble() / text.length }.toList())
+                return SegOut.Proxied(Pcm.toPcm16(audio), nonSpace.findAll(text).map { Marks.key(it.value) to it.range.first.toDouble() / text.length }.toList())
             }
             // Звук сегмента и токены для подсветки; null — нечего читать или синтез упал.
             fun synthSegment(seg: Segment): SegOut.Model? {
@@ -699,6 +708,7 @@ class SileroTtsService : TextToSpeechService() {
         /** Голос «английский» для читалок, которые выбирают голос по языку: русский текст такого запроса
          * всё равно читает Silero, латиницу — движок для английского. */
         const val EN_VOICE = "english-en"
+        private val nonSpace = Regex("\\S+")
         /** Громкость речи Silero (Pcm.voicedRms, скользящее среднее) — к ней подтягиваем английский. */
         @Volatile var sileroLevel = 0f
         /** Кэш коротких фраз — на процесс, переживает пересоздание сервиса. */
