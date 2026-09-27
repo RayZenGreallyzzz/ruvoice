@@ -455,6 +455,9 @@ class SileroTtsService : TextToSpeechService() {
             // TtsSpan (пунктуация TalkBack «Все») — текстом; смещения rangeStart считаются по нему же
             val spoken = spokenText(request.charSequenceText)
             val reqText = spoken.text
+            // книжный запрос — в журнал как пришёл (невидимые знаки и ударения кодами), с голосом и темпом:
+            // видно, что прислала читалка. Фразы экранного чтеца не пишем — там переписка
+            if (!screenReader) note("от ${caller?.pkg ?: "?"}: голос $wantedName, темп %.2f, высота %.2f: «%s»".format(rate, pitch, visible(reqText)))
             val auditNames = prefs.auditNames && !noDict
             var written = 0L // сэмплов отдано читалке — точка отсчёта markerInFrames
             var audioMs = 0L // длительность отданного звука — для журнала
@@ -562,7 +565,9 @@ class SileroTtsService : TextToSpeechService() {
                         models.ensureLoaded(voice.pack)
                         val accented = stress.apply(prepared, marks.text)
                         if (auditNames) audit.names(seg.text, accented, known)
-                        val seq = sym.sequence(stress.forModel(accented))
+                        val forModel = stress.forModel(accented)
+                        if (!screenReader) note("в модель: «${visible(forModel)}»")
+                        val seq = sym.sequence(forModel)
                         // интонация вопросов/восклицаний и логическое ударение есть только у v5_5_ru
                         val typeIds = if (voice.types) SentenceType.typeIds(prepared, SentenceType.classify(marks.text, d, rules), seq.size, d) else LongArray(seq.size)
                         val curSpeakerId = if (seg.speech) quoteSpeakerId ?: speakerId else speakerId
@@ -729,6 +734,13 @@ class SileroTtsService : TextToSpeechService() {
          * всё равно читает Silero, латиницу — движок для английского. */
         const val EN_VOICE = "english-en"
         private val nonSpace = Regex("\\S+")
+        /** Текст для журнала: не длиннее JOURNAL_TEXT, знаки вне букв, цифр и обычной пунктуации — кодом («\\u00AD»),
+         * иначе мягкий перенос или комбинируемое ударение в отчёте не разглядеть. */
+        fun visible(t: String): String {
+            val s = if (t.length > JOURNAL_TEXT) t.take(JOURNAL_TEXT) + "…" else t
+            return buildString { for (c in s) if (c.isLetterOrDigit() || c == ' ' || c in ".,!?;:()«»\"'-–—…+*{}") append(c) else append("\\u%04X".format(c.code)) }
+        }
+        private const val JOURNAL_TEXT = 300
         /** Громкость речи Silero (Pcm.voicedRms, скользящее среднее) — к ней подтягиваем английский. */
         @Volatile var sileroLevel = 0f
         /** Кэш коротких фраз — на процесс, переживает пересоздание сервиса. */
