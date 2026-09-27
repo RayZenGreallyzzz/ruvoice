@@ -16,10 +16,11 @@ class Rules(val off: Set<String> = emptySet(), val maxLen: Int = MAX_LEN_DEFAULT
         if (on(key) == on) this else Rules(if (key in off) off - key else off + key, maxLen, focus)
 
     /** Правила для запроса экранного чтеца (TalkBack и др.) — секция «Чтение с экрана» поверх общих:
-     * служебные символы словами, без голоса прямой речи и без тишины перед фразой. Паузы между
+     * быстрый старт, служебные символы словами, без голоса прямой речи и без тишины перед фразой. Паузы между
      * предложениями (sr_pauses_off), выгрузку модели (sr_keep_loaded), темп и высоту чтеца решает сервис. */
     fun screenReader(): Rules {
-        var r = this
+        // быстрый старт чтеца — своим правилом, независимо от книжного fast_start
+        var r = with("fast_start", on("sr_fast_start"))
         if (on("sr_symbols")) r = r.with("symbol_names", true)
         if (on("sr_quote_off")) r = r.with("speech", false)
         if (on("sr_lead_in_off")) r = r.with("lead_in", false)
@@ -48,7 +49,7 @@ class Rules(val off: Set<String> = emptySet(), val maxLen: Int = MAX_LEN_DEFAULT
         /** Порядок списка = порядок на экране. Вверху «Чтение с экрана» (только запросы экранного чтеца),
          * за ней «Разное» — для настроек без своего раздела. */
         val KEYS = listOf(
-            "sr_symbols", "sr_quote_off", "sr_lead_in_off", "sr_pauses_off", "sr_keep_loaded", "sr_phrase_disk",
+            "sr_fast_start", "sr_symbols", "sr_quote_off", "sr_lead_in_off", "sr_pauses_off", "sr_keep_loaded", "sr_phrase_disk",
             "symbol_names", "emoji", "letter_name", "letter_echo_all", "lead_in", "fast_start", "drop_links", "drop_emails", "read_links",
             "phones", "codes", "numbers", "arith", "cases", "roman", "roman_name", "dates", "day_month", "years", "times", "units",
             "degrees", "currency", "fractions", "spoons", "gen_suffix", "sections", "thousands", "footnotes",
@@ -59,7 +60,7 @@ class Rules(val off: Set<String> = emptySet(), val maxLen: Int = MAX_LEN_DEFAULT
             "pause_semicolon", "pause_parens", "fast_cores",
         )
         /** Ключ, с которого начинается новая секция → её заголовок (rules_section_<имя> в strings.xml). */
-        val SECTIONS = mapOf("sr_symbols" to "talkback", "symbol_names" to "misc", "phones" to "numbers", "abbrev" to "abbrev", "en_proxy_books" to "english", "dehyphen" to "split",
+        val SECTIONS = mapOf("sr_fast_start" to "talkback", "symbol_names" to "misc", "phones" to "numbers", "abbrev" to "abbrev", "en_proxy_books" to "english", "dehyphen" to "split",
             "gram" to "stress", "pause_semicolon" to "audio")
     }
 }

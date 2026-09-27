@@ -190,6 +190,14 @@ class PipelineTest {
         assertEquals(off[1], on[2])
     }
 
+    @Test fun screenReaderFastStartByDefault() {
+        // сообщение из чата без точек — у чтеца первый кусок режется по запятой, у книг по умолчанию нет
+        val msg = "Иван Петров, ребята кто знает где можно купить нормальный зарядник для редми ноут тринадцать а то мой сдох вчера, 19:05"
+        assertEquals(1, Pipeline.plan(msg, d, 0, 0).size)
+        val sr = Pipeline.plan(msg, d, 0, 0, rules = Rules().screenReader())
+        assertEquals(listOf(Segment("Иван Петров"), Segment(msg.substringAfter(", "))), sr)
+    }
+
     @Test fun fastStartLeavesShortFirstSegment() {
         val on = Pipeline.plan("Раз. Два!", d, 100, 0, rules = Rules(off = setOf("fast_start")))
         assertEquals(listOf(Segment("Раз.", breakMs = 100), Segment("Два!", breakMs = 100)), on)
