@@ -315,8 +315,11 @@ class SettingsActivity : AppCompatActivity() {
                             appendLine(); continue
                         }
                         // монитор models — тот же, что у синтеза и выгрузки в сервисе: форварды не параллелим
+                        val trace = ArrayList<String>().also { if (rules.on("verbose_log")) stress.trace = it }
                         val accented = synchronized(models) { Pipeline.accent(seg.text, d, stress, allowed, rules) }
                         appendLine(getString(R.string.analyze_model, stress.forModel(accented).split(' ').joinToString(" ") { DictLines.accentDisplay(it) }))
+                        // правило verbose_log — по проходам: какой поставил ударение, и вероятности акцентора по гласным слова
+                        trace.forEach { appendLine(it) }
                         if (seg.breakMs > 0) appendLine(getString(R.string.analyze_pause, seg.breakMs))
                         appendLine()
                     }
