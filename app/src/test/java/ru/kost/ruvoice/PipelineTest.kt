@@ -2,6 +2,8 @@ package ru.kost.ruvoice
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.io.File
+import ru.kost.ruvoice.text.Emoji
 import ru.kost.ruvoice.text.Replacements
 import ru.kost.ruvoice.text.Rules
 import ru.kost.ruvoice.text.Segment
@@ -196,6 +198,27 @@ class PipelineTest {
         assertEquals(1, Pipeline.plan(msg, d, 0, 0).size)
         val sr = Pipeline.plan(msg, d, 0, 0, rules = Rules().screenReader())
         assertEquals(listOf(Segment("Иван Петров"), Segment(msg.substringAfter(", "))), sr)
+    }
+
+    @Test fun fastStartCountsModelLength() {
+        val sr = Rules().screenReader()
+        // ссылка: 89 символов исходного текста, для модели 215 — голова до ссылки
+        val link = "Иван Петров, Смотрите https://t.me/c/1234567890/98765?thread=4321 тут всё написано, 19:05"
+        val a = Pipeline.plan(link, d, 0, 0, rules = sr)
+        assertEquals(listOf("Иван Петров", link.substringAfter(", ")), a.map { it.text })
+        // число: голова без длинного кода
+        val num = "Иван Петров, ваш код 4815162342 номер заказа 20260927000123, 19:05"
+        assertEquals("Иван Петров", Pipeline.plan(num, d, 0, 0, rules = sr).first().text)
+        // эмодзи
+        val old = Emoji.shared
+        Emoji.shared = File(TestData.root(), "app/src/main/assets/emoji_ru.tsv").bufferedReader().useLines { Emoji(it) }
+        try {
+            val emo = "Иван Петров, 😂😂😂 ну вы даёте 👍🔥❤️🎉🙏😎🤣😭💯 молодцы, 19:05"
+            assertEquals("Иван Петров", Pipeline.plan(emo, d, 0, 0, rules = sr).first().text)
+        } finally { Emoji.shared = old }
+        // короткая фраза без раздувания и одна ссылка без пробелов — как были
+        assertEquals(1, Pipeline.plan("Кнопка, Назад", d, 0, 0, rules = sr).size)
+        assertEquals(1, Pipeline.plan("https://t.me/c/1234567890/98765", d, 0, 0, rules = sr).size)
     }
 
     @Test fun fastStartLeavesShortFirstSegment() {
