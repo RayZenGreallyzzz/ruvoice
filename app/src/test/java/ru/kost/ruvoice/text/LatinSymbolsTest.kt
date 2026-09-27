@@ -72,6 +72,12 @@ class LatinSymbolsTest {
         assertEquals("в доме", Normalizer.symbols("в\u00A0доме", allowed))
     }
 
+    @Test fun softHyphenKeepsWordWhole() {
+        // мягкий перенос (U+00AD) из fb2/epub и WORD JOINER не рвут слово: «вос тро» акцентор читал бы «в+ос тр+о»
+        assertEquals("держать ухо востро.", Normalizer.prepare("Держать ухо вос\u00ADтро.", allowed))
+        assertEquals("держать ухо востро.", Normalizer.prepare("Держать ухо вос\u2060тро.", allowed))
+    }
+
     @Test fun prepareWholePipeline() {
         assertEquals("в две тысячи двадцать четвёртом году вышел айфон пятнадцать.",
             Normalizer.prepare("В 2024-м году вышел iPhone 15.", allowed))
