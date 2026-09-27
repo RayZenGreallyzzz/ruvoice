@@ -10,17 +10,54 @@ object Pcm {
         v.coerceIn(-32767, 32767).toShort()
     }
 
-    /** Громкость голоса: множитель поверх того, что даёт модель. Выше 1 пики не срезаются в квадрат
-     * (это хрип), а мягко прижимаются к потолку: до 0,8 — как есть, выше — плавный изгиб к 1. */
-    fun gain(samples: FloatArray, g: Float) {
-        if (g == 1f) return
-        for (i in samples.indices) {
-            val v = samples[i] * g
-            val a = Math.abs(v)
-            samples[i] = if (a <= KNEE) v else Math.signum(v) * (KNEE + (1 - KNEE) * Math.tanh(((a - KNEE) / (1 - KNEE)).toDouble()).toFloat())
+    /** Потолок усиления: и ползунка «Громкость», и всей суммы поправок английского. */
+    const val MAX_GAIN = 3f
+
+    /** Громкость голоса: множитель поверх того, что даёт модель. Тише — ровно в g раз. Громче — ограничитель
+     * с упреждением: там, где пик вылез бы за [CEIL], плавно (за ~[LIMIT_MS] мс до и после) убавляется усиление
+     * всего звука, форма волны не гнётся. Изгиб каждого сэмпла (tanh) при ×3 уже слышен как хрип. */
+    fun gain(samples: FloatArray, g: Float, sampleRate: Int) {
+        if (g == 1f || samples.isEmpty()) return
+        if (g < 1f) { for (i in samples.indices) samples[i] *= g; return }
+        val n = samples.size
+        // сколько можно дать каждому сэмплу, чтобы он остался под потолком
+        val need = FloatArray(n) { val a = Math.abs(samples[it]) * g; if (a > CEIL) CEIL / a else 1f }
+        val half = maxOf(1, sampleRate * LIMIT_MS / 1000)
+        // минимум по окну ±half, затем среднее по окну ±half/2: каждое окно среднего целиком внутри окна минимума,
+        // поэтому огибающая нигде не выше need — пики не вылезают, а усиление меняется без ступенек
+        val env = boxMean(slidingMin(need, half), half / 2)
+        for (i in 0 until n) samples[i] = (samples[i] * g * env[i]).coerceIn(-CEIL, CEIL)
+    }
+    private const val CEIL = 0.97f
+    private const val LIMIT_MS = 10
+
+    /** Минимум по окну [i-r, i+r], монотонная очередь — O(n). */
+    private fun slidingMin(a: FloatArray, r: Int): FloatArray {
+        val n = a.size
+        val out = FloatArray(n)
+        val q = IntArray(n); var head = 0; var tail = 0
+        var j = 0
+        for (i in 0 until n) {
+            while (j < n && j <= i + r) {
+                while (tail > head && a[q[tail - 1]] >= a[j]) tail--
+                q[tail++] = j; j++
+            }
+            while (q[head] < i - r) head++
+            out[i] = a[q[head]]
+        }
+        return out
+    }
+
+    /** Среднее по окну [i-r, i+r] (у краёв — по той части, что есть). */
+    private fun boxMean(a: FloatArray, r: Int): FloatArray {
+        val n = a.size
+        val pre = DoubleArray(n + 1)
+        for (i in 0 until n) pre[i + 1] = pre[i] + a[i]
+        return FloatArray(n) { i ->
+            val lo = maxOf(0, i - r); val hi = minOf(n, i + r + 1)
+            ((pre[hi] - pre[lo]) / (hi - lo)).toFloat()
         }
     }
-    private const val KNEE = 0.8f
 
     fun fadeEdges(samples: FloatArray, sampleRate: Int, ms: Int = 5) {
         val n = minOf(sampleRate * ms / 1000, samples.size / 2)
@@ -70,6 +107,10 @@ object Pcm {
      * дальше — уже не выравнивание, а порча звука. 1 — если мерить нечем. */
     fun matchGain(reference: Float, other: Float): Float =
         if (reference <= 0f || other <= 0f) 1f else (reference / other).coerceIn(0.5f, 2f)
+
+    /** Итог для английского куска: выравнивание × громкость английского × общая, не больше [MAX_GAIN].
+     * Без потолка три множителя по ×2 дают ×8 — ограничитель такое уже не вытягивает. */
+    fun englishGain(match: Float, enVolume: Float, volume: Float): Float = (match * enVolume * volume).coerceIn(0.125f, MAX_GAIN)
 
     fun toFloat(pcm: ShortArray): FloatArray = FloatArray(pcm.size) { pcm[it] / 32767f }
 

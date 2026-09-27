@@ -425,8 +425,9 @@ class SileroTtsService : TextToSpeechService() {
             val rate = if (screenReader) (request.speechRate / 100f * prefs.srRate).coerceIn(0.5f, SR_MAX_RATE)
                 else (request.speechRate / 100f * prefs.rate).coerceIn(0.5f, 3f)
             val pitch = (request.pitch / 100f * (if (screenReader) prefs.srPitch else prefs.pitch)).coerceIn(0.5f, 2f)
-            // громкость читалки (KEY_PARAM_VOLUME) применяет сам плеер Android; наша — поверх, в звуке модели
-            val volume = (if (screenReader) prefs.srVolume else prefs.volume).coerceIn(0.5f, 2f)
+            // громкость читалки (KEY_PARAM_VOLUME) применяет сам плеер Android; наша — поверх, в звуке модели.
+            // У чтеца своя громкость — множитель поверх общей: крутят общую, слышно и в TalkBack
+            val volume = (prefs.volume * (if (screenReader) prefs.srVolume else 1f)).coerceIn(0.25f, Pcm.MAX_GAIN)
             // настройки слушают слово «как модель», без пользовательского словаря
             val noDict = request.params?.getString("ruvoice.nodict") == "1"
             val baseRules = prefs.rules()
@@ -518,7 +519,7 @@ class SileroTtsService : TextToSpeechService() {
                 val segPitch = pitch * (if (seg.speech) quotePitch else 1f)
                 val a = english.synth(text, engine.pkg, enVoice, segRate, segPitch, enLimits) { gone() } ?: return null
                 val audio = Pcm.toFloat(Pcm.resample(a.pcm, a.sampleRate, sr))
-                Pcm.gain(audio, Pcm.matchGain(sileroLevel, Pcm.voicedRms(audio, sr)) * enVolume * volume)
+                Pcm.gain(audio, Pcm.englishGain(Pcm.matchGain(sileroLevel, Pcm.voicedRms(audio, sr)), enVolume, volume), sr)
                 Pcm.fadeEdges(audio, sr, 5)
                 enCount++
                 return SegOut.Proxied(Pcm.toPcm16(audio), nonSpace.findAll(text).map { Marks.key(it.value) to it.range.first.toDouble() / text.length }.toList())
@@ -601,7 +602,7 @@ class SileroTtsService : TextToSpeechService() {
                     val audio = out.audio
                     // средняя громкость Silero — мерка для английского от другого движка
                     Pcm.voicedRms(audio, sr).takeIf { it > 0f }?.let { sileroLevel = if (sileroLevel == 0f) it else sileroLevel * 0.8f + it * 0.2f }
-                    Pcm.gain(audio, volume)
+                    Pcm.gain(audio, volume, sr)
                     Pcm.fadeEdges(audio, sr, 5)
                     val segRate = rate * (if (seg.speech) quoteRate else 1f)
                     val pcm = Tempo.stretch(Pcm.toPcm16(audio), sr, segRate)

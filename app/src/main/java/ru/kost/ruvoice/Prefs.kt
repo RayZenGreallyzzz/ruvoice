@@ -225,7 +225,7 @@ class Prefs(private val context: Context) {
         (prefsMap["quote_voice"] as? String)?.let { quoteVoice = it }
         (prefsMap["quote_rate"] as? Number)?.let { quoteRate = it.toFloat().coerceIn(0.5f, 2f) }
         (prefsMap["quote_pitch"] as? Number)?.let { quotePitch = it.toFloat().coerceIn(0.5f, 2f) }
-        (prefsMap["volume"] as? Number)?.let { volume = it.toFloat().coerceIn(0.5f, 2f) }
+        (prefsMap["volume"] as? Number)?.let { volume = it.toFloat().coerceIn(0.5f, 3f) }
         (prefsMap["sr_volume"] as? Number)?.let { srVolume = it.toFloat().coerceIn(0.5f, 2f) }
         (prefsMap["sr_rate"] as? Number)?.let { srRate = it.toFloat().coerceIn(0.5f, 2f) }
         (prefsMap["sr_pitch"] as? Number)?.let { srPitch = it.toFloat().coerceIn(0.5f, 2f) }
