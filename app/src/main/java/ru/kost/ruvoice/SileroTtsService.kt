@@ -263,10 +263,12 @@ class SileroTtsService : TextToSpeechService() {
         phrases.dir = java.io.File(cacheDir, "phrases")
         // процесс перезапущен при работающем чтеце — сразу на передний план (из фона система может не дать)
         if (srHold()) handler.post { enterForeground() }
+        // режим бэкбона — до любой загрузки: фраза чтеца может прийти раньше прогрева, и прогрев перегружал бы бэкбон
+        models.resident = srHold()
         Thread { runCatching { warmUp() }.onFailure { Log.e(SileroModels.TAG, "прогрев", it) } }.start()
         // английский для чтеца: подключаемся к движку сейчас, а не на первой фразе с латиницей
         Thread { runCatching { if (prefs.rules().on("en_proxy_sr")) EnglishProxy.chosen(this, prefs.enEngine)?.let {
-            english.warm(it.pkg, prefs.enSrTimeoutMs.coerceIn(EnglishProxy.SR_TIMEOUT_MIN, EnglishProxy.SR_TIMEOUT_MAX).toLong()) } } }.start()
+            english.warm(it.pkg, prefs.enVoice) } } }.start()
         // 0.14.18 по ошибке ушёл с отладочной записью всего звука в files/tee/*.pcm — вычищаем
         Thread { runCatching { getExternalFilesDir(null)?.let { java.io.File(it, "tee").deleteRecursively() } } }.start()
     }
@@ -354,15 +356,22 @@ class SileroTtsService : TextToSpeechService() {
         }
     }
 
-    override fun onGetVoices(): List<Voice> = Speaker.names(models.data, packs()).map {
+    // Вопросы о голосах — по одним именам (SileroModels.speakers), без models.data: система задаёт их при подключении
+    // читалки и шлёт первую фразу после ответа, а полный разбор данных на A32 — ~10 с.
+    private fun voiceNames() = Speaker.names(SileroModels.speakers(this), packs())
+    private fun known(name: String?) = Speaker.exists(name, SileroModels.speakers(this), packs())
+    /** Имя [currentSpeaker] без SileroData. */
+    private fun currentName(): String? = prefs.voice.takeIf { known(it) } ?: Speaker.DEFAULT.takeIf { known(it) } ?: voiceNames().firstOrNull()
+
+    override fun onGetVoices(): List<Voice> = voiceNames().map {
         Voice(Speaker.ttsName(it), Locale("ru", "RU"), Voice.QUALITY_HIGH, Voice.LATENCY_NORMAL, false, emptySet())
     } + (if (englishReady()) listOf(Voice(EN_VOICE, Locale.US, Voice.QUALITY_NORMAL, Voice.LATENCY_HIGH, false, emptySet())) else emptyList())
     override fun onIsValidVoiceName(name: String?): Int =
         if (name == EN_VOICE) (if (englishReady()) TextToSpeech.SUCCESS else TextToSpeech.ERROR)
-        else if (Speaker.resolve(Speaker.fromTtsName(name, models.data, packs()), models.data, packs()) != null) TextToSpeech.SUCCESS else TextToSpeech.ERROR
+        else if (known(Speaker.fromTtsName(name, voiceNames()))) TextToSpeech.SUCCESS else TextToSpeech.ERROR
     override fun onLoadVoice(name: String?): Int = onIsValidVoiceName(name)
     override fun onGetDefaultVoiceNameFor(lang: String?, country: String?, variant: String?): String =
-        if (lang == "eng" && englishReady()) EN_VOICE else Speaker.ttsName(currentSpeaker()?.name ?: Speaker.DEFAULT)
+        if (lang == "eng" && englishReady()) EN_VOICE else Speaker.ttsName(currentName() ?: Speaker.DEFAULT)
 
     override fun onStop() { stopped = true }
 
@@ -393,10 +402,10 @@ class SileroTtsService : TextToSpeechService() {
         val t0 = System.currentTimeMillis()
         firstAudioAt = 0L
         try {
-            val d = models.data
             val sr = prefs.sampleRate
-            // Голос запроса; модель грузим после кэша фраз: готовая фраза звучит, даже пока модель ещё грузится
-            val wanted = Speaker.resolve(Speaker.fromTtsName(request.voiceName, d, packs()), d, packs()) ?: currentSpeaker() ?: run {
+            // Голос запроса — по именам; models.data и модель — после кэша фраз: готовая фраза звучит сразу, и после
+            // перезапуска процесса тоже, пока разбираются данные (~10 с на A32)
+            val wantedName = Speaker.fromTtsName(request.voiceName, voiceNames()).takeIf { known(it) } ?: currentName() ?: run {
                 Log.e(SileroModels.TAG, "голосов нет: сборка без модели и без пака"); callback.error(TextToSpeech.ERROR_NOT_INSTALLED_YET); return
             }
             // Экранный чтец (TalkBack и др.) — свои правила, темп и высота поверх общих (секция «Чтение с экрана»)
@@ -428,7 +437,7 @@ class SileroTtsService : TextToSpeechService() {
             // Короткая фраза уже звучала с теми же голосом, темпом и настройками — отдаём готовый звук.
             // Сбор имён («Проверка») и прослушивание без словаря идут мимо кэша.
             val cacheKey = if (reqText.length <= PhraseCache.MAX_TEXT && !noDict && !auditNames)
-                listOf(BuildConfig.VERSION_CODE, prefs.stamp(), prefs.dictStamp(), wanted.name, wanted.pack?.let { java.io.File(it.dir, "pack.json").lastModified() },
+                listOf(BuildConfig.VERSION_CODE, prefs.stamp(), prefs.dictStamp(), wantedName, packs().joinToString(",") { "${it.id}:${java.io.File(it.dir, "pack.json").lastModified()}" },
                     sr, rate, pitch, screenReader, reqText).joinToString("\u0001") else null
             // фразы чтеца — ещё и с диска (правило sr_phrase_disk): переживают перезапуск процесса
             val diskCache = screenReader && baseRules.on("sr_phrase_disk")
@@ -442,6 +451,8 @@ class SileroTtsService : TextToSpeechService() {
                     (caller?.let { ", от ${it.pkg}" + if (screenReader) " (экранный чтец)" else "" } ?: ""))
                 return
             }
+            val d = models.data
+            val wanted = Speaker.resolve(wantedName, d, packs()) ?: run { callback.error(TextToSpeech.ERROR_NOT_INSTALLED_YET); return }
             val voice = load(wanted)
             val speakerId = voice.id
             val sym = voice.sym
@@ -485,6 +496,9 @@ class SileroTtsService : TextToSpeechService() {
             val matcher = Marks.Matcher(srcWords.map { it.first })
             val recorder = cacheKey?.let { PhraseCache.Recorder() }
             var enCount = 0
+            // английский кусок не дошёл до движка (не ответил, минута после сбоя) и прочитан по-русски — такую фразу
+            // не кэшируем: иначе она и после того, как движок ожил, звучала бы по-русски, с диска — и после перезапуска
+            var enFallback = false
             // Английский кусок чужим движком: готовый PCM на нашей частоте и слова с долей позиции для подсветки.
             // Громкость подтягиваем к Silero (у Google голос заметно громче), поверх — поправки пользователя.
             // null — не вышло; тогда сегмент читает Silero, латиница транслитерируется, как без правила.
@@ -550,6 +564,7 @@ class SileroTtsService : TextToSpeechService() {
                     val t = System.currentTimeMillis()
                     val p = try { proxySegment(seg, enEngine) } finally { synthMs.addAndGet(System.currentTimeMillis() - t) }
                     if (p != null || gone()) return p
+                    enFallback = true
                 }
                 return synthSegment(seg)
             }
@@ -604,7 +619,7 @@ class SileroTtsService : TextToSpeechService() {
             } } finally { next?.cancel(false) }
             callback.done()
             // в кэш — только доведённое до конца: оборванный TalkBack-ом звук был бы неполным
-            if (recorder != null && cacheKey != null && !stopped && audioMs > 0) phrases.put(cacheKey, recorder.entry(), diskCache)
+            if (recorder != null && cacheKey != null && !stopped && !enFallback && audioMs > 0) phrases.put(cacheKey, recorder.entry(), diskCache)
             audit.flush()
             val ms = System.currentTimeMillis() - t0
             note("запрос ${request.charSequenceText.length} симв., ${segments.size} сегм., $ms мс" +
@@ -623,6 +638,8 @@ class SileroTtsService : TextToSpeechService() {
 
     /** false — клиент ушёл (framework вернул не SUCCESS), дальше синтезировать незачем. */
     private fun write(callback: SynthesisCallback, pcm: ShortArray): Boolean {
+        // до первой порции: audioAvailable блокирует, пока в плеере больше 500 мс, и после цикла был бы почти конец фразы
+        if (firstAudioAt == 0L) firstAudioAt = System.currentTimeMillis()
         val bytes = Pcm.toBytes(pcm)
         val max = callback.maxBufferSize
         var off = 0
@@ -632,7 +649,6 @@ class SileroTtsService : TextToSpeechService() {
             off += n
         }
         lastAudioAt = System.currentTimeMillis()
-        if (firstAudioAt == 0L) firstAudioAt = lastAudioAt
         return true
     }
 

@@ -62,8 +62,8 @@ class EnglishProxy private constructor(private val context: Context) {
     }
 
     /** Клиент к движку [pkg] с английским языком; null — движок не поднялся за [initMs], английского у него
-     * нет или [stopped] оборвал ожидание. */
-    private fun client(pkg: String, initMs: Long, stopped: () -> Boolean = { false }): TextToSpeech? {
+     * нет или [stopped] оборвал ожидание. [penalize] = false — не подключился за срок, но паузы после сбоя не ставим. */
+    private fun client(pkg: String, initMs: Long, stopped: () -> Boolean = { false }, penalize: Boolean = true): TextToSpeech? {
         tts?.let { if (ttsPkg == pkg) return it }
         shutdown()
         val init = CountDownLatch(1)
@@ -78,7 +78,7 @@ class EnglishProxy private constructor(private val context: Context) {
         }
         if (init.count > 0 || status != TextToSpeech.SUCCESS) {
             SileroTtsService.note("английский: движок $pkg не запустился за $initMs мс")
-            fail(pkg); runCatching { t.shutdown() }; return null
+            if (penalize) fail(pkg); runCatching { t.shutdown() }; return null
         }
         val lang = listOf(Locale.US, Locale.UK, Locale.ENGLISH).firstOrNull { runCatching { t.setLanguage(it) }.getOrDefault(TextToSpeech.LANG_NOT_SUPPORTED) >= TextToSpeech.LANG_AVAILABLE }
         if (lang == null) {
@@ -162,7 +162,14 @@ class EnglishProxy private constructor(private val context: Context) {
     }
 
     /** Подключиться заранее, чтобы первая английская фраза чтеца не ждала подключения. */
-    @Synchronized fun warm(pkg: String, initMs: Long) { client(pkg, initMs) }
+    /** Прогрев при запуске сервиса, в фоне: холодный движок (Google TTS после перезапуска) подключается и грузит голос
+     * секунды — срок чтеца на первой английской фразе он не проходил, и минуту английский читался по-русски.
+     * Английская фраза чтеца на это время ждёт монитор — срок [WARM] короче книжного; не подключился — паузы после
+     * сбоя не ставим, фраза попробует сама. */
+    @Synchronized fun warm(pkg: String, voice: String) {
+        client(pkg, WARM.init, penalize = false) ?: return
+        synth("a", pkg, voice, 1f, 1f, WARM) { false }
+    }
 
     private fun fail(pkg: String) { failedPkg = pkg; failedUntil = SystemClock.elapsedRealtime() + FAIL_PAUSE_MS }
 
@@ -176,6 +183,7 @@ class EnglishProxy private constructor(private val context: Context) {
     companion object {
         /** Книги ждут движок подольше: лучше английский с задержкой, чем транслитерация. */
         val BOOKS = Timeouts(init = 5_000, base = 10_000, perChar = 100)
+        val WARM = Timeouts(init = 5_000, base = 5_000, perChar = 0)
         /** Экранный чтец ждать не может: не успел движок за [ms] + 20 мс на знак (настройка «Сколько ждать движок»,
          * Prefs.enSrTimeoutMs) с начала запроса, подключение клиента входит в этот срок, — фраза по-русски. */
         fun screenReader(ms: Int) = Timeouts(init = ms.toLong(), base = ms.toLong(), perChar = 20, total = true)

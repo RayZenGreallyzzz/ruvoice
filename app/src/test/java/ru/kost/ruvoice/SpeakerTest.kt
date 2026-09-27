@@ -88,4 +88,13 @@ class SpeakerTest {
         assertNull(x.pack); assertEquals("xenia", x.name)
         assertEquals(5 + 5, Speaker.names(d, listOf(ruPack)).size)
     }
+
+    @Test fun existsMatchesResolve() {
+        // exists — для вопросов системы о голосах без разбора silero_ru.json
+        val names = listOf("xenia", "nobody", "ru/xenia", "cis_ru/ru_alexandr", "cis_ru/nobody", "zz/xenia", "", null)
+        for (packs in listOf(emptyList(), listOf(pack), listOf(ruPack), listOf(pack, ruPack))) {
+            for (n in names) assertEquals("$n $packs", Speaker.resolve(n, d, packs) != null, Speaker.exists(n, d.speakers.keys, packs))
+            lite { for (n in names) assertEquals("lite $n", Speaker.resolve(n, d, packs) != null, Speaker.exists(n, d.speakers.keys, packs)) }
+        }
+    }
 }

@@ -30,9 +30,19 @@ class Speaker(val name: String, val pack: Pack?, val id: Int, val sym: Symbols, 
         /** Есть ли хоть один голос: встроенная модель или пак с голосами. Без разбора silero_ru.json. */
         fun hasVoices(packs: List<Pack>) = builtin || packs.any { it.speakers.isNotEmpty() }
 
+        /** Есть ли голос — то же, что resolve(...) != null, но по одним именам штатных голосов (SileroModels.speakers):
+         * без разбора всего silero_ru.json. */
+        fun exists(name: String?, builtinNames: Set<String>, packs: List<Pack>): Boolean {
+            if (name == null) return false
+            val i = name.indexOf('/')
+            if (i < 0) return if (builtin) name in builtinNames else packs.firstOrNull { it.id == RU_PACK }?.speakers?.containsKey(name) == true
+            return packs.firstOrNull { it.id == name.substring(0, i) }?.speakers?.containsKey(name.substring(i + 1)) == true
+        }
+
         /** Все имена: штатные по алфавиту (в full), затем по пакам. */
-        fun names(d: SileroData, packs: List<Pack>): List<String> =
-            (if (builtin) d.speakers.keys.sorted() else emptyList()) + packs.flatMap { p -> p.speakers.keys.sorted().map { packName(p, it) } }
+        fun names(d: SileroData, packs: List<Pack>): List<String> = names(d.speakers.keys, packs)
+        fun names(builtinNames: Set<String>, packs: List<Pack>): List<String> =
+            (if (builtin) builtinNames.sorted() else emptyList()) + packs.flatMap { p -> p.speakers.keys.sorted().map { packName(p, it) } }
 
         /** Голоса того же движка, что [main] — для прямой речи: в памяти одна тройка моделей,
          * перегружать 90 МБ на каждую реплику нельзя. */
@@ -47,8 +57,9 @@ class Speaker(val name: String, val pack: Pack?, val id: Int, val sym: Symbols, 
             return (parts(speaker) + "ru" + parts(pack)).joinToString("-")
         }
         /** Обратно из [ttsName]; имя в старой форме «ru-ru-cis_ru/ru_marat» (до 0.15) — тоже. */
-        fun fromTtsName(tts: String?, d: SileroData, packs: List<Pack>): String? =
-            tts?.let { t -> names(d, packs).firstOrNull { ttsName(it) == t } ?: t.removePrefix("ru-ru-") }
+        fun fromTtsName(tts: String?, d: SileroData, packs: List<Pack>): String? = fromTtsName(tts, names(d, packs))
+        fun fromTtsName(tts: String?, names: List<String>): String? =
+            tts?.let { t -> names.firstOrNull { ttsName(it) == t } ?: t.removePrefix("ru-ru-") }
 
         /** Подпись в списке: «ru_alexandr (cis_ru)», штатные как есть. */
         fun label(name: String): String = name.indexOf('/').let { i -> if (i < 0) name else "${name.substring(i + 1)} (${name.substring(0, i)})" }

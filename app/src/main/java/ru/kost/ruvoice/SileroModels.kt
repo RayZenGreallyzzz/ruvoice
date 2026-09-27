@@ -202,16 +202,44 @@ class SileroModels(private val context: Context) : StressModels {
         const val TAG = "RuVoice"
         // json (2.5 МБ) разбирается один раз на процесс — не на каждый SileroModels(context).
         @Volatile private var shared: SileroData? = null
+        // shared — только когда загружены и словари: кто получил data, сразу читает с «ё» и твёрдым «э».
         fun data(context: Context): SileroData = shared ?: synchronized(this) {
-            shared ?: SileroData(context.applicationContext.assets.open("silero/silero_ru.json").bufferedReader().readText()).also {
-                shared = it
+            shared ?: run {
+                val ctx = context.applicationContext
+                // eyo_safe от json не зависит, и оба по ~5 с на A32 — параллельно
+                val yo = java.util.concurrent.FutureTask {
+                    runCatching { YoDict.open(ctx) }.onFailure { e -> Log.e(TAG, "eyo_safe.txt не открылся", e) }.getOrNull()
+                }.also { Thread(it, "eyo_safe").start() }
+                val d = SileroData(ctx.assets.open("silero/silero_ru.json").bufferedReader().readText())
                 // Морфология для нормализатора — mmap ассета, один раз на процесс.
-                Normalizer.morph = runCatching { Morph.open(context.applicationContext) }.onFailure { e -> Log.e(TAG, "morph.bin не открылся", e) }.getOrNull()
-                YoDict.shared = runCatching { YoDict.open(context.applicationContext) }.onFailure { e -> Log.e(TAG, "eyo_safe.txt не открылся", e) }.getOrNull()
-                HardE.shared = runCatching { HardE.open(context.applicationContext) }.onFailure { e -> Log.e(TAG, "hard_e.txt не открылся", e) }.getOrNull()
-                Emoji.shared = runCatching { Emoji.open(context.applicationContext) }.onFailure { e -> Log.e(TAG, "emoji_ru.tsv не открылся", e) }.getOrNull()
-                SymbolNames.cldr = runCatching { SymbolNames.open(context.applicationContext) }.onFailure { e -> Log.e(TAG, "symbols_ru.tsv не открылся", e) }.getOrNull()
+                Normalizer.morph = runCatching { Morph.open(ctx) }.onFailure { e -> Log.e(TAG, "morph.bin не открылся", e) }.getOrNull()
+                HardE.shared = runCatching { HardE.open(ctx) }.onFailure { e -> Log.e(TAG, "hard_e.txt не открылся", e) }.getOrNull()
+                Emoji.shared = runCatching { Emoji.open(ctx) }.onFailure { e -> Log.e(TAG, "emoji_ru.tsv не открылся", e) }.getOrNull()
+                SymbolNames.cldr = runCatching { SymbolNames.open(ctx) }.onFailure { e -> Log.e(TAG, "symbols_ru.tsv не открылся", e) }.getOrNull()
+                YoDict.shared = yo.get()
+                d.also { shared = it }
             }
+        }
+
+        @Volatile private var speakerNames: Set<String>? = null
+        /** Имена штатных голосов без разбора всего silero_ru.json (4,6 МБ, ~5 с на A32): система при подключении читалки
+         * спрашивает голос по умолчанию (onGetDefaultVoiceNameFor) и шлёт первую фразу только после ответа.
+         * «speakers» в начале файла — читаем до него. */
+        fun speakers(context: Context): Set<String> = shared?.speakers?.keys ?: speakerNames ?: run {
+            val head = StringBuilder()
+            context.applicationContext.assets.open("silero/silero_ru.json").bufferedReader().use { r ->
+                val buf = CharArray(8192)
+                while (true) {
+                    val n = r.read(buf); if (n < 0) break
+                    head.append(buf, 0, n)
+                    val i = head.indexOf("\"speakers\"")
+                    if (i >= 0 && head.indexOf("}", i) >= 0) break
+                }
+            }
+            val i = head.indexOf("\"speakers\"")
+            if (i < 0) return data(context).speakers.keys
+            val o = org.json.JSONObject(head.substring(head.indexOf("{", i), head.indexOf("}", i) + 1))
+            o.keys().asSequence().toSet().also { speakerNames = it }
         }
     }
 }
