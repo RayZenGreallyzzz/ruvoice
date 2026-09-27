@@ -331,6 +331,8 @@ class AuditFragment : PageFragment(R.layout.fragment_audit) {
             .sortedWith(if (prefs.auditSortAlpha) compareBy(Dicts.COLLATOR) { it.word } else compareByDescending<Audit.Entry> { it.count }.thenBy(Dicts.COLLATOR) { it.word })
         emptyView.setText(if (hidden) R.string.audit_empty_hidden else R.string.audit_empty)
         emptyView.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
+        // пустой список прячем, как в DictFragments: иначе чтец встаёт на фокусируемый список без слов и молчит
+        recycler.visibility = if (items.isEmpty()) View.GONE else View.VISIBLE
         recycler.adapter?.notifyDataSetChanged()
     }
 

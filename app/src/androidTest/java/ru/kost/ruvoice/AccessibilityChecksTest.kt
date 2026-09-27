@@ -52,6 +52,7 @@ class AccessibilityChecksTest {
 
     @Before fun skipFirstRunHelp() {
         Prefs(ctx).setupShown = true // иначе окно «Как включить» закрывает экран
+        ScreenReaderSettle.await()
     }
 
     /** Всё, что нажимается, берёт фокус: иначе физическая клавиатура и Switch Access до него не дойдут

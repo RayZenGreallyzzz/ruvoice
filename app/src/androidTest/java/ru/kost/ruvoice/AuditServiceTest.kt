@@ -31,15 +31,25 @@ class AuditServiceTest {
             val tts = TextToSpeech(ctx, { s -> status = s; ready.countDown() }, "ru.kost.ruvoice")
             assertTrue(ready.await(60, TimeUnit.SECONDS)); assertEquals(TextToSpeech.SUCCESS, status)
             tts.setLanguage(Locale("ru", "RU"))
-            val done = CountDownLatch(1)
-            tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                override fun onStart(id: String?) {}
-                override fun onDone(id: String?) { done.countDown() }
-                @Deprecated("") override fun onError(id: String?) { done.countDown() }
-                override fun onError(id: String?, code: Int) { done.countDown() }
-            })
-            assertEquals(TextToSpeech.SUCCESS, tts.synthesizeToFile(text, Bundle(), File(ctx.cacheDir, "audit.wav"), "audit"))
-            assertTrue(done.await(180, TimeUnit.SECONDS))
+            // экранный чтец (Jieshuo), сбрасывая свою очередь, снимает и чужие заказы движка — они приходят onStop;
+            // такой заказ повторяем — через секунду: пока сброс не прошёл, новый заказ снимается сразу же
+            var ok = false
+            for (attempt in 1..10) {
+                val done = CountDownLatch(1); var stopped = false
+                tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(id: String?) {}
+                    override fun onDone(id: String?) { done.countDown() }
+                    @Deprecated("") override fun onError(id: String?) { done.countDown() }
+                    override fun onError(id: String?, code: Int) { done.countDown() }
+                    override fun onStop(id: String?, interrupted: Boolean) { stopped = true; done.countDown() }
+                })
+                assertEquals(TextToSpeech.SUCCESS, tts.synthesizeToFile(text, Bundle(), File(ctx.cacheDir, "audit.wav"), "audit"))
+                assertTrue(done.await(180, TimeUnit.SECONDS))
+                if (!stopped) { ok = true; break }
+                Log.i("RuVoiceTest", "заказ снят (onStop), повтор $attempt")
+                Thread.sleep(1000)
+            }
+            assertTrue("заказ снимали все 10 раз", ok)
             tts.shutdown()
             val names = prefs.audit.entries(Audit.Kind.NAMES)
             Log.i("RuVoiceTest", "имена: " + names.joinToString { "${it.variant}×${it.count}" })

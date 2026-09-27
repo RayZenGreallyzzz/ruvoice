@@ -40,7 +40,10 @@
             </intent-filter>
             <meta-data android:name="android.speech.tts" android:resource="@xml/tts_engine" />
         </service>
-        <activity android:name=".CheckVoiceDataActivity" android:exported="true" android:theme="@android:style/Theme.NoDisplay">
+        <!-- Своя пустая задача: Jieshuo при каждом подключении к движку шлёт CHECK_TTS_DATA с NEW_TASK|CLEAR_TASK,
+             и в задаче приложения это закрывало открытые настройки RuVoice. -->
+        <activity android:name=".CheckVoiceDataActivity" android:exported="true" android:theme="@android:style/Theme.NoDisplay"
+            android:taskAffinity="" android:excludeFromRecents="true" android:noHistory="true">
             <intent-filter>
                 <action android:name="android.speech.tts.engine.CHECK_TTS_DATA" />
                 <category android:name="android.intent.category.DEFAULT" />

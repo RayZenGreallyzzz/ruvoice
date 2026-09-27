@@ -2,7 +2,7 @@ package ru.kost.ruvoice
 
 import android.view.KeyEvent
 import android.view.View
-import android.widget.AutoCompleteTextView
+import android.widget.ListView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.UiController
@@ -10,7 +10,10 @@ import androidx.test.espresso.ViewAction
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.action.ViewActions.pressKey
 import androidx.test.espresso.assertion.ViewAssertions.matches
+import androidx.test.espresso.matcher.RootMatchers.isPlatformPopup
 import androidx.test.espresso.matcher.ViewMatchers.hasDescendant
+import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
+import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.isChecked
 import androidx.test.espresso.matcher.ViewMatchers.isClickable
 import androidx.test.espresso.matcher.ViewMatchers.isDescendantOfA
@@ -45,6 +48,7 @@ class KeyboardTest {
         Prefs(ctx).setupShown = true
         // как после первого нажатия на клавиатуре: в режиме касания requestFocus() строке правила отказывает
         InstrumentationRegistry.getInstrumentation().setInTouchMode(false)
+        ScreenReaderSettle.await()
     }
 
     /** Фокус на вьюху, как после Tab: клавиши дальше идут в неё. */
@@ -86,7 +90,9 @@ class KeyboardTest {
             onView(allOf(withText(ctx.getString(R.string.tab_voice)), isDescendantOfA(withId(R.id.tabs)))).perform(click())
             onView(withId(R.id.voice)).perform(focus())
             key(KeyEvent.KEYCODE_ENTER)
-            onView(withId(R.id.voice)).check { v, _ -> assertTrue("список не открылся", (v as AutoCompleteTextView).isPopupShowing) }
+            // список — всплывающее окно: обычное у AutoCompleteTextView, а при экранном чтеце (исследование касанием)
+            // MaterialAutoCompleteTextView показывает модальное, и фокус уходит в него
+            onView(isAssignableFrom(ListView::class.java)).inRoot(isPlatformPopup()).check(matches(isDisplayed()))
             key(KeyEvent.KEYCODE_ESCAPE)
         }
     }

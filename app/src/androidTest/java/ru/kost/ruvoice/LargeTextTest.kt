@@ -59,6 +59,7 @@ class LargeTextTest {
 
     @Before fun skipFirstRunHelp() {
         Prefs(ctx).setupShown = true
+        ScreenReaderSettle.await()
     }
 
     /** Обрезанные по высоте надписи в окне — одной ошибкой со списком. */
