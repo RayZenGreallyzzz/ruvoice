@@ -102,7 +102,7 @@ class VoiceFragment : PageFragment(R.layout.fragment_voice) {
         v.dropdown(R.id.sampleRate, rateItems, rateItems[rates.indexOf(prefs.sampleRate).coerceAtLeast(0)])
         v.rateSlider(R.id.rate, R.id.rateValue, prefs.rate, getString(R.string.quote_rate))
         v.rateSlider(R.id.pitch, R.id.pitchValue, prefs.pitch, getString(R.string.quote_pitch))
-        v.rateSlider(R.id.volume, R.id.volumeValue, prefs.volume, getString(R.string.volume))
+        v.rateSlider(R.id.volume, R.id.volumeValue, prefs.volume, getString(R.string.volume), to = 3f)
         v.rateSlider(R.id.quoteRate, R.id.quoteRateValue, prefs.quoteRate, getString(R.string.quote_rate_a11y))
         v.rateSlider(R.id.quotePitch, R.id.quotePitchValue, prefs.quotePitch, getString(R.string.quote_pitch_a11y))
         // Настройки прямой речи видны только при включённом распознавании.
