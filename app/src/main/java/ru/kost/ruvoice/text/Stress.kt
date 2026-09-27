@@ -36,17 +36,23 @@ class Stress(private val d: SileroData, private val models: StressModels, privat
 
     /** source — текст сегмента до нормализации: нормализатор опускает регистр, а правилу «самого + Имя» нужна заглавная
      * следующего слова. По умолчанию — сам sentence (тесты, аудит). */
+    /** «Разбор»: не null — сюда пишется текст после каждого прохода и вероятности акцентора по словам. */
+    var trace: MutableList<String>? = null
+
     fun apply(sentence: String, source: String = sentence): String {
         var s = sentence
+        fun step(name: String, next: String) { trace?.add("$name: $next"); s = next }
+        trace?.add("вход: $sentence")
         // слова, пришедшие уже с «+» (фраза из словаря замен или ударение в самом тексте): словарь ударений их не трогает,
         // фраза конкретнее слова («обливаясь п+отом» против «потом = пот+ом»)
         val preset = wordRe.findAll(sentence).filter { '+' in it.value }.map { it.value.lowercase() }.toSet()
-        if (rules.on("gram")) s = gramPass(s, source = source)
-        if (rules.on("homo")) s = homographPass(s)
-        if (rules.on("accentor")) s = accentorPass(s)
-        s = userDictPass(s, sentence, preset)
+        if (rules.on("gram")) step("gram", gramPass(s, source = source))
+        if (rules.on("homo")) step("homo", homographPass(s))
+        if (rules.on("accentor")) step("accentor", accentorPass(s))
+        step("словарь", userDictPass(s, sentence, preset))
         // твёрдое [э] в заимствованиях — после всех ударений, чтобы модель и словари видели обычное «е»
-        return if (rules.on("hard_e") && hardE != null) hardE.apply(s) else s
+        if (rules.on("hard_e") && hardE != null) step("hard_e", hardE.apply(s))
+        return s
     }
 
     // ---- грамматика: падеж или часть речи по предыдущему слову ----
@@ -468,6 +474,7 @@ class Stress(private val d: SileroData, private val models: StressModels, privat
         val (raw, clean, mask) = tokenize(sentence)
         val batch = clean.filterIndexed { i, _ -> mask[i] }
         val (stressProbs, yoProbs) = if (batch.isEmpty()) Pair(emptyArray(), emptyArray()) else models.accentor(batch)
+        trace?.let { t -> for ((k, w) in batch.withIndex()) t += "  $w: " + stressProbs[k].take(w.count { it in vowels }.coerceAtLeast(1)).joinToString(" ") { "%.2f".format(it) } }
         val out = StringBuilder()
         var bi = 0
         for (i in raw.indices) {
