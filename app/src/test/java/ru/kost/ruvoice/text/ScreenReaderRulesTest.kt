@@ -14,10 +14,19 @@ class ScreenReaderRulesTest {
         assertTrue(sr.on("symbol_names"))
         assertFalse(sr.on("speech"))
         assertFalse(sr.on("lead_in"))
+        assertTrue(sr.on("fast_start"))
         // общие — как были
         assertFalse(Rules().on("symbol_names"))
         assertTrue(Rules().on("lead_in"))
         assertTrue(Rules().on("sr_pauses_off"))
+        assertFalse(Rules().on("fast_start"))
+    }
+
+    @Test fun fastStartSeparateFromBooks() {
+        // книжный fast_start включён, чтецовый выключен — у чтеца быстрого старта нет, и наоборот
+        assertFalse(Rules(off = setOf("fast_start", "sr_fast_start")).screenReader().on("fast_start"))
+        assertTrue(Rules(off = setOf("fast_start", "sr_fast_start")).on("fast_start"))
+        assertTrue(Rules().screenReader().on("fast_start"))
     }
 
     @Test fun sectionSwitchesOff() {

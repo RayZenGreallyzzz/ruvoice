@@ -168,19 +168,38 @@ object Pipeline {
                 }
             }
         }
-        if (rules.on("fast_start")) fastStart(out)
+        if (rules.on("fast_start")) fastStart(out, d.allowed, rules)
         return carryProsody(out)
     }
 
     /** Первый сегмент запроса короче остальных: звук уходит читалке только после счёта всего
      * сегмента, и max_len символов на слабом телефоне — секунды тишины перед началом. Хвост
-     * считается, пока играет голова. Режется как limit, по запятой, но один раз. */
-    private fun fastStart(out: ArrayList<Segment>) {
+     * считается, пока играет голова. Режется как limit, по запятой, но один раз.
+     * Длина — текста для модели, после нормализации: ссылка, эмодзи, число раздуваются в 2–3 раза
+     * («t.me/c/123…» — «ти точка ме слэш си слэш один два три…»). Без раздувания разрез тот же, что по исходному. */
+    private const val inflating = "@#%&/_=+~$€₽"
+    private fun fastStart(out: ArrayList<Segment>, allowed: String, rules: Rules) {
         val i = out.indexOfFirst { it.text.isNotBlank() }
-        if (i < 0 || out[i].text.length <= Rules.FAST_START_LEN) return
-        val seg = out[i]; val c = Splitter.cut(seg.text, Rules.FAST_START_LEN)
-        out[i] = seg.copy(text = seg.text.substring(c + 1).trim())
-        out.add(i, Segment(seg.text.substring(0, c + 1).trim().trimEnd(','), speech = seg.speech, en = seg.en))
+        if (i < 0) return
+        val seg = out[i]; val t = seg.text
+        fun modelLen(s: String) = Normalizer.prepare(Marks.parse(s, 0).text, allowed, rules).length
+        fun head(c: Int) = t.substring(0, c + 1).trim().trimEnd(',')
+        // короткую фразу чтеца без цифр, латиницы и значков не нормализуем лишний раз — раздуваться в ней нечему
+        if (t.length <= Rules.FAST_START_LEN && (t.none { it in inflating || it.isDigit() || it.code >= 0x2000 || it in 'a'..'z' || it in 'A'..'Z' } ||
+                modelLen(t) <= Rules.FAST_START_LEN)) return
+        var c = Splitter.cut(t, Rules.FAST_START_LEN)
+        if (c + 1 >= t.length) return   // запрос короче порога без запятой и пробела — резать негде
+        // голова раздулась — режем раньше, пропорционально раздуванию, пока есть запятая или пробел левее
+        while (true) {
+            val len = modelLen(head(c))
+            if (len <= Rules.FAST_START_LEN) break
+            val limit = minOf(c - 1, c * Rules.FAST_START_LEN / len)
+            val next = Splitter.cut(t, limit)
+            if (limit <= 0 || next >= c || (t[next] != ',' && t[next] != ' ')) break
+            c = next
+        }
+        out[i] = seg.copy(text = t.substring(c + 1).trim())
+        out.add(i, Segment(head(c), speech = seg.speech, en = seg.en))
     }
 
     /** Текст сегмента → слова для модели с ударениями (до Stress.forModel), тем же путём, что synthSegment. */
