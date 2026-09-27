@@ -44,7 +44,7 @@ class Rules(val off: Set<String> = emptySet(), val maxLen: Int = MAX_LEN_DEFAULT
         const val FOCUS_MAX = 3
 
         /** Правила, выключенные по умолчанию. */
-        val DEFAULT_OFF = setOf("symbol_names", "fast_start", "drop_links", "drop_emails", "en_proxy_books", "en_proxy_sr", "letter_echo_all", LETTER_ECHO)
+        val DEFAULT_OFF = setOf("symbol_names", "fast_start", "drop_links", "drop_emails", "en_proxy_books", "en_proxy_sr", "letter_echo_all", LETTER_ECHO, "verbose_log")
 
         /** Порядок списка = порядок на экране. Вверху «Чтение с экрана» (только запросы экранного чтеца),
          * за ней «Разное» — для настроек без своего раздела. */
@@ -58,9 +58,10 @@ class Rules(val off: Set<String> = emptySet(), val maxLen: Int = MAX_LEN_DEFAULT
             "dehyphen", "soft_break", "punct", "ssml",
             "gram", "first_pl", "homo", "accentor", "yo", "hard_e", "prefix_space", "intonation", "focus", "exclaim", "question",
             "pause_semicolon", "pause_parens", "fast_cores",
+            "verbose_log",
         )
         /** Ключ, с которого начинается новая секция → её заголовок (rules_section_<имя> в strings.xml). */
         val SECTIONS = mapOf("sr_fast_start" to "talkback", "symbol_names" to "misc", "phones" to "numbers", "abbrev" to "abbrev", "en_proxy_books" to "english", "dehyphen" to "split",
-            "gram" to "stress", "pause_semicolon" to "audio")
+            "gram" to "stress", "pause_semicolon" to "audio", "verbose_log" to "debug")
     }
 }

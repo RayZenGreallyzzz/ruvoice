@@ -455,9 +455,9 @@ class SileroTtsService : TextToSpeechService() {
             // TtsSpan (пунктуация TalkBack «Все») — текстом; смещения rangeStart считаются по нему же
             val spoken = spokenText(request.charSequenceText)
             val reqText = spoken.text
-            // книжный запрос — в журнал как пришёл (невидимые знаки и ударения кодами), с голосом и темпом:
+            // правило verbose_log: книжный запрос — в журнал как пришёл (невидимые знаки и ударения кодами), с голосом и темпом:
             // видно, что прислала читалка. Фразы экранного чтеца не пишем — там переписка
-            if (!screenReader) note("от ${caller?.pkg ?: "?"}: голос $wantedName, темп %.2f, высота %.2f: «%s»".format(rate, pitch, visible(reqText)))
+            if (!screenReader && rules.on("verbose_log")) note("от ${caller?.pkg ?: "?"}: голос $wantedName, темп %.2f, высота %.2f: «%s»".format(rate, pitch, visible(reqText)))
             val auditNames = prefs.auditNames && !noDict
             var written = 0L // сэмплов отдано читалке — точка отсчёта markerInFrames
             var audioMs = 0L // длительность отданного звука — для журнала
@@ -566,7 +566,7 @@ class SileroTtsService : TextToSpeechService() {
                         val accented = stress.apply(prepared, marks.text)
                         if (auditNames) audit.names(seg.text, accented, known)
                         val forModel = stress.forModel(accented)
-                        if (!screenReader) note("в модель: «${visible(forModel)}»")
+                        if (!screenReader && rules.on("verbose_log")) note("в модель: «${visible(forModel)}»")
                         val seq = sym.sequence(forModel)
                         // интонация вопросов/восклицаний и логическое ударение есть только у v5_5_ru
                         val typeIds = if (voice.types) SentenceType.typeIds(prepared, SentenceType.classify(marks.text, d, rules), seq.size, d) else LongArray(seq.size)
