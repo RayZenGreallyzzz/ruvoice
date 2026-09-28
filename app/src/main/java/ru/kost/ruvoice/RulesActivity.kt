@@ -1,5 +1,6 @@
 package ru.kost.ruvoice
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.View
@@ -12,6 +13,13 @@ import com.google.android.material.color.DynamicColors
 
 /** «Настройки» и «Английский» ([EXTRA_ENGLISH]) из меню ⋮: RulesFragment отдельным окном, тумблеры сохраняются в его onPause. */
 class RulesActivity : AppCompatActivity() {
+    /** Профиль сменили плиткой в шторке — окно заново с тумблерами нового профиля (recreate вернул бы старые). */
+    private val profileWatch = ProfileWatch(this) {
+        finish(); startActivity(Intent(this, RulesActivity::class.java).putExtras(intent)); overridePendingTransition(0, 0)
+    }
+    override fun onResume() { super.onResume(); profileWatch.resume() }
+    override fun onPause() { profileWatch.pause(); super.onPause() }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         DynamicColors.applyToActivityIfAvailable(this)
         super.onCreate(savedInstanceState)

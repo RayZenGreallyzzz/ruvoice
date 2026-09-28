@@ -9,6 +9,9 @@ import org.json.JSONObject
  * Формат v2: {"app":"ruvoice","version":2,"prefs":{...},"stress":{"имя":"текст",…},
  * "replace":{"имя":"текст",…},"stress_off":["имя",…],"replace_off":[…],
  * "audit":{"names":"текст файла"}} — список вкладки «Проверка» вместе со скрытыми (см. Audit); прочие ключи (старый "unsure") пропускаются.
+ * "profiles":{"active":"имя","list":[{"name":"Основной","main":true,"prefs":{снимок ProfileData}},…]} — профили (Profiles);
+ * "prefs" — по-прежнему настройки активного профиля: старая версия приложения прочтёт их и пропустит профили,
+ * а файл старой версии без "profiles" ложится в активный профиль.
  * В v1 stress/replace были строками одного файла — при разборе они становятся списком «Основной».
  * Prefs.exportJson/importJson — тонкие обёртки поверх этого объекта, здесь же вся логика,
  * которую удобно тестировать без Android Context.
@@ -19,10 +22,14 @@ object SettingsJson {
 
     /** Разобранный файл: prefs как есть (типы JSON); словари и выключенные — null, если ключа не было. */
     data class Parsed(val prefs: Map<String, Any>, val stress: Map<String, String>?, val replace: Map<String, String>?,
-                      val stressOff: Set<String>?, val replaceOff: Set<String>?, val audit: Map<String, String>? = null)
+                      val stressOff: Set<String>?, val replaceOff: Set<String>?, val audit: Map<String, String>? = null,
+                      val profiles: List<ProfileEntry>? = null, val activeProfile: String? = null)
+
+    class ProfileEntry(val name: String, val main: Boolean, val prefs: Map<String, Any>)
 
     fun build(prefsMap: Map<String, Any>, stress: Map<String, String>, replace: Map<String, String>,
-              stressOff: Set<String>, replaceOff: Set<String>, audit: Map<String, String> = emptyMap()): String {
+              stressOff: Set<String>, replaceOff: Set<String>, audit: Map<String, String> = emptyMap(),
+              profiles: List<ProfileEntry> = emptyList(), activeProfile: String? = null): String {
         val prefsJson = JSONObject()
         for ((key, value) in prefsMap) prefsJson.put(key, value)
         val root = JSONObject()
@@ -34,6 +41,9 @@ object SettingsJson {
         root.put("stress_off", JSONArray(stressOff))
         root.put("replace_off", JSONArray(replaceOff))
         if (audit.isNotEmpty()) root.put("audit", JSONObject(audit))
+        if (profiles.isNotEmpty()) root.put("profiles", JSONObject().put("active", activeProfile).put("list", JSONArray().also { arr ->
+            profiles.forEach { arr.put(JSONObject().put("name", it.name).put("main", it.main).put("prefs", ProfileData.encode(it.prefs))) }
+        }))
         return root.toString(2)
     }
 
@@ -51,7 +61,14 @@ object SettingsJson {
         if (prefsJson != null) {
             for (key in prefsJson.keys()) prefs[key] = prefsJson.get(key)
         }
-        return Parsed(prefs, dicts(root, "stress"), dicts(root, "replace"), names(root, "stress_off"), names(root, "replace_off"), dicts(root, "audit"))
+        val prof = root.optJSONObject("profiles")
+        val list = prof?.optJSONArray("list")?.let { arr ->
+            (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.filter { it.optString("name").isNotBlank() }.map {
+                ProfileEntry(it.optString("name"), it.optBoolean("main"), ProfileData.decode(it.optJSONObject("prefs") ?: JSONObject()))
+            }
+        }?.takeIf { it.isNotEmpty() }
+        return Parsed(prefs, dicts(root, "stress"), dicts(root, "replace"), names(root, "stress_off"), names(root, "replace_off"), dicts(root, "audit"),
+            list, prof?.optString("active")?.takeIf { list != null && it.isNotEmpty() })
     }
 
     /** v2 — объект имя→текст; v1 — строка, она же список «Основной». */

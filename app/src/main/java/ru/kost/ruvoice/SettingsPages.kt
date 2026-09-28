@@ -35,17 +35,21 @@ abstract class PageFragment(layout: Int) : Fragment(layout) {
     protected abstract fun load(v: View)
     protected abstract fun save(v: View)
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) { view.markHeadings(); load(view) }
+    /** Профиль, для которого загружены поля: сменился (плитка в шторке) — поля чужие, не сохранять. */
+    private var loadedGen = -1
+    private fun sameProfile() = Profiles(requireContext()).gen == loadedGen
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) { view.markHeadings(); loadedGen = Profiles(requireContext()).gen; load(view) }
     override fun onPause() {
         // recreate() после импорта (Task 25) сначала распускает старые фрагменты — им нельзя
         // затирать только что импортированный файл своими устаревшими полями.
-        if (activity?.intent?.getBooleanExtra(SettingsActivity.EXTRA_IMPORT_DONE, false) != true) view?.let { save(it) }
+        if (activity?.intent?.getBooleanExtra(SettingsActivity.EXTRA_IMPORT_DONE, false) != true && sameProfile()) view?.let { save(it) }
         super.onPause()
     }
 
     /** Принудительно сохранить поля в Prefs, не дожидаясь onPause — нужно перед экспортом
      * настроек, чтобы в файл попали несохранённые правки текущей (видимой) вкладки. */
-    fun saveNow() { view?.let { save(it) } }
+    fun saveNow() { if (sameProfile()) view?.let { save(it) } }
 
     protected fun EditText.str() = text.toString()
 }

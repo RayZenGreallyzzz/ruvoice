@@ -67,6 +67,14 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+        <!-- Плитка в шторке: переключение профиля настроек (Android 7+) -->
+        <service android:name=".ProfileTileService" android:exported="true" android:label="@string/tile_label"
+            android:icon="@drawable/ic_profile" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            tools:targetApi="24">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
         <activity android:name=".RulesActivity" android:exported="false" android:label="@string/rules_title" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".TroubleshootActivity" android:exported="false" android:label="@string/troubleshoot_title" />
         <activity android:name=".AboutActivity" android:exported="false" android:label="@string/about_title" />
