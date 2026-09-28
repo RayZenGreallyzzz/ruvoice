@@ -150,6 +150,8 @@ class DictsTest {
         assertEquals("Книга (2)", Dicts.freeName(tmp.root, Dicts.Kind.STRESS, "Книга"))
         dir.resolve("Книга (2).txt").writeText("")
         assertEquals("Книга (3)", Dicts.freeName(tmp.root, Dicts.Kind.STRESS, "Книга"))
+        // импорт файла «Системный удалённые.txt», пока своего такого нет, не становится списком удалённых
+        assertEquals("${Dicts.REMOVED} (2)", Dicts.freeName(tmp.root, Dicts.Kind.STRESS, Dicts.REMOVED))
     }
 
     @Test fun validNameRejectsSlashesEmptyAndLong() {

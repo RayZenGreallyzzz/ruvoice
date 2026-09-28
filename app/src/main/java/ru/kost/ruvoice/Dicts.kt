@@ -117,9 +117,9 @@ object Dicts {
         return t.isNotEmpty() && t.length <= MAX_NAME && '/' !in t && '\\' !in t
     }
 
-    /** name, если свободно, иначе «name (2)», «name (3)»… */
+    /** name, если свободно, иначе «name (2)», «name (3)»… Имена системных заняты всегда. */
     fun freeName(root: File, kind: Kind, name: String): String {
-        if (!file(root, kind, name).exists()) return name
+        if (!isSystem(name) && !file(root, kind, name).exists()) return name
         var n = 2
         while (file(root, kind, "$name ($n)").exists()) n++
         return "$name ($n)"

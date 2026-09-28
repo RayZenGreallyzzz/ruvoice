@@ -417,7 +417,8 @@ abstract class DictListFragment(layout: Int) : PageFragment(layout) {
             layout.error = when {
                 name.isEmpty() -> null
                 !Dicts.validName(name) -> getString(R.string.dict_name_bad)
-                name != initial && Dicts.file(ctx.filesDir, kind, name).exists() -> getString(R.string.dict_name_taken)
+                // имена системных заняты всегда: «Системный удалённые» появляется только после первого смахивания
+                name != initial && (Dicts.isSystem(name) || Dicts.file(ctx.filesDir, kind, name).exists()) -> getString(R.string.dict_name_taken)
                 else -> null
             }
             posButton?.isEnabled = name.isNotEmpty() && name != initial && layout.error == null

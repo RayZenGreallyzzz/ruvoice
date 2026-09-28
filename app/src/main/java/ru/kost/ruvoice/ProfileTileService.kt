@@ -7,13 +7,17 @@ import android.graphics.drawable.Icon
 import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityManager
 import android.widget.Toast
 import androidx.annotation.RequiresApi
+import androidx.core.app.NotificationManagerCompat
 
 /**
  * Плитка «Профиль RuVoice» в шторке: подпись — выбранный профиль. Нажатие: профилей два — переключает на
  * другой, больше — список на выбор, один — открывает вкладку «Профили». Выбор объявляется всплывающим
- * сообщением: TalkBack его читает. Открытое окно настроек само перечитает поля (ProfileWatch).
+ * сообщением (TalkBack его читает), при запрещённых уведомлениях — объявлением доступности. Открытое окно
+ * настроек само перечитает поля (ProfileWatch).
  */
 @RequiresApi(24)
 class ProfileTileService : TileService() {
@@ -43,7 +47,17 @@ class ProfileTileService : TileService() {
     private fun pick(p: Profiles.Profile) {
         profiles.switchTo(p.id)
         update()
-        Toast.makeText(this, getString(R.string.profile_switched, p.name), Toast.LENGTH_SHORT).show()
+        val msg = getString(R.string.profile_switched, p.name)
+        // из шторки мы в фоне: при запрещённых уведомлениях Android 13 такой тост глушит молча
+        // («Suppressing toast … by user request») — тогда объявление чтецу. С задержкой: сразу за нажатием чтец
+        // читает новое состояние плитки и обрывает объявление (Jieshuo — через 27 мс, звука не было)
+        if (NotificationManagerCompat.from(this).areNotificationsEnabled()) Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+        else android.os.Handler(mainLooper).postDelayed({
+            getSystemService(AccessibilityManager::class.java)?.takeIf { it.isEnabled }?.sendAccessibilityEvent(
+                @Suppress("DEPRECATION") AccessibilityEvent.obtain(AccessibilityEvent.TYPE_ANNOUNCEMENT).apply {
+                    packageName = this@ProfileTileService.packageName; className = javaClass.name; text.add(msg)
+                })
+        }, ANNOUNCE_DELAY_MS)
     }
 
     private fun openProfiles() {
@@ -63,4 +77,6 @@ class ProfileTileService : TileService() {
         tile.state = if (profiles.list().size > 1) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
         tile.updateTile()
     }
+
+    private companion object { const val ANNOUNCE_DELAY_MS = 600L }
 }

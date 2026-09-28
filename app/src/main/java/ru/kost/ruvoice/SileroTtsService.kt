@@ -438,8 +438,13 @@ class SileroTtsService : TextToSpeechService() {
             }
             val caller = ScreenReaders.caller(this, request.callerUid)
             // читалка сменила голос на привязанный к профилю — профиль включается до чтения настроек ниже.
-            // «Прослушать» в самом приложении не в счёт: голос там меняют на вкладке «Голос» (VoiceFragment)
-            if (asked != null && caller?.pkg != packageName) Profiles(this).followVoice(caller?.pkg ?: "?", asked)?.let { note("профиль «${it.name}»: ${caller?.pkg ?: "?"} выбрала голос $asked") }
+            // «Прослушать» в самом приложении не в счёт: голос там меняют на вкладке «Голос» (VoiceFragment).
+            // Пакеты обычных читалок с Android 11 нам не видны (caller null) — тогда читалка по uid, иначе все они
+            // делили бы один «прошлый голос» и две читалки с разными голосами дёргали бы профиль на каждой фразе
+            if (asked != null && request.callerUid != android.os.Process.myUid()) {
+                val who = caller?.pkg ?: "uid ${request.callerUid}"
+                Profiles(this).followVoice(who, asked)?.let { note("профиль «${it.name}»: $who выбрала голос $asked") }
+            }
             val sr = prefs.sampleRate
             // Экранный чтец (TalkBack и др.) — свои правила, темп и высота поверх общих (секция «Чтение с экрана»)
             val screenReader = caller != null && ScreenReaders.isScreenReader(prefs, caller)
