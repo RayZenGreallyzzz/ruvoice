@@ -129,7 +129,7 @@ class Prefs(private val context: Context) {
     fun current(kind: Dicts.Kind): File {
         val files = dictFiles(kind)
         val name = p.getString("dict_cur_${kind.dir}", Dicts.MAIN)!!
-        return files.firstOrNull { Dicts.name(it) == name } ?: files.firstOrNull { Dicts.name(it) != Dicts.SYSTEM }
+        return files.firstOrNull { Dicts.name(it) == name } ?: files.firstOrNull { !Dicts.isSystem(Dicts.name(it)) }
             ?: Dicts.file(context.filesDir, kind, Dicts.MAIN).also { it.parentFile!!.mkdirs(); it.writeText("") }
     }
     fun setCurrent(kind: Dicts.Kind, name: String) = p.edit().putString("dict_cur_${kind.dir}", name).apply()
@@ -140,7 +140,8 @@ class Prefs(private val context: Context) {
     var dictPreviewText: String get() = p.getString("dict_preview_text", "")!!; set(v) = p.edit().putString("dict_preview_text", v).apply()
 
     fun dictFiles(kind: Dicts.Kind): List<File> = Dicts.files(context.filesDir, kind)
-    fun enabledDictFiles(kind: Dicts.Kind): List<File> = off(kind).let { off -> dictFiles(kind).filter { Dicts.name(it) !in off } }
+    /** Списки для чтения: без выключенных и без «Системный удалённые» — его строки уже вычтены из системного. */
+    fun enabledDictFiles(kind: Dicts.Kind): List<File> = off(kind).let { off -> dictFiles(kind).filter { Dicts.name(it).let { n -> n !in off && n != Dicts.REMOVED } } }
 
     init {
         Dicts.migrate(context.filesDir, DEFAULT_REPLACE)
@@ -253,6 +254,8 @@ class Prefs(private val context: Context) {
             if (Dicts.validName(name)) Dicts.file(context.filesDir, kind, name.trim()).also { it.parentFile!!.mkdirs() }.writeText(body)
         }
         write(Dicts.Kind.STRESS, parsed.stress); write(Dicts.Kind.REPLACE, parsed.replace)
+        // системный из файла — чужой версии и со своими удалёнными: пересобрать по нашей полной копии
+        for (kind in Dicts.Kind.values()) Dicts.rebuildSystem(context.filesDir, kind)
         parsed.stressOff?.let { setOff(Dicts.Kind.STRESS, it) }
         parsed.replaceOff?.let { setOff(Dicts.Kind.REPLACE, it) }
     }
