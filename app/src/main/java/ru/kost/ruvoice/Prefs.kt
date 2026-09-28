@@ -18,8 +18,9 @@ class Prefs(private val context: Context) {
     /** Выгружать модели по простою; выключено — держать в памяти, пока жив сервис. */
     var idleOn: Boolean get() = p.getBoolean("idle_on", true); set(v) = p.edit().putBoolean("idle_on", v).apply()
     /** Движок для английских кусков (правила en_proxy_*): тот, что пользователь выбрал или подтвердил в диалоге
-     * включения; пустая строка — не выбран, английский читается по-русски (EnglishProxy.chosen). В экспорт
-     * не идёт: движки у каждого телефона свои, а согласие — на конкретный движок. */
+     * включения; пустая строка — не выбран, английский читается по-русски (EnglishProxy.chosen). В "prefs" экспорта
+     * не идёт, но свой у каждого профиля и с ним — в файле: на телефоне без этого движка английский читается
+     * по-русски, на другой движок молча не переходим. */
     var enEngine: String get() = p.getString("en_engine", "")!!; set(v) = p.edit().putString("en_engine", v).apply()
     /** Голос движка для английского (Voice.getName()); пустая строка — голос движка по умолчанию. */
     var enVoice: String get() = p.getString("en_voice", "")!!; set(v) = p.edit().putString("en_voice", v).apply()
