@@ -1,9 +1,12 @@
 package ru.kost.ruvoice
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import ru.kost.ruvoice.text.Emoji
+import ru.kost.ruvoice.text.Marks
+import ru.kost.ruvoice.text.Normalizer
 import ru.kost.ruvoice.text.Replacements
 import ru.kost.ruvoice.text.Rules
 import ru.kost.ruvoice.text.Segment
@@ -205,7 +208,9 @@ class PipelineTest {
         // ссылка: 89 символов исходного текста, для модели 215 — голова до ссылки
         val link = "Иван Петров, Смотрите https://t.me/c/1234567890/98765?thread=4321 тут всё написано, 19:05"
         val a = Pipeline.plan(link, d, 0, 0, rules = sr)
-        assertEquals(listOf("Иван Петров", link.substringAfter(", ")), a.map { it.text })
+        assertEquals("Иван Петров", a.first().text)
+        // хвост для модели длиннее предела чтеца (200) — режется ещё по запятой, но весь на месте
+        assertEquals(listOf("Смотрите https://t.me/c/1234567890/98765?thread=4321 тут всё написано", "19:05"), a.drop(1).map { it.text })
         // число: голова без длинного кода
         val num = "Иван Петров, ваш код 4815162342 номер заказа 20260927000123, 19:05"
         assertEquals("Иван Петров", Pipeline.plan(num, d, 0, 0, rules = sr).first().text)
@@ -296,5 +301,42 @@ class PipelineTest {
         val sr = Rules().screenReader()
         assertEquals(listOf("+ар" to false), Pipeline.plan("r", d, 0, 0, rules = sr, englishWords = 1).map { it.text to it.en })
         assertEquals(listOf("удаление, +ар, заглавная" to false), Pipeline.plan("Удаление заглавная R", d, 0, 0, rules = sr, englishWords = 1).map { it.text to it.en })
+    }
+
+    /** sr_link_word: разрез (быстрый старт, предел куска чтеца) не должен приходиться внутрь адреса —
+     * иначе в модель уйдёт «ссылка» с обрывком сайта, а хвост адреса прочитается по частям. */
+    @Test fun linkWordNotCutInsideUrl() {
+        val pad = "Привет смотри что я нашёл вчера вечером когда искал новые голоса для телефона и читалки"
+        val cases = listOf(
+            "$pad https://example.com/list?ids=1,2,3,4,5&sort=asc,desc там всё есть",
+            "https://example.com/" + "a".repeat(260) + " вот",
+            "$pad www.ya.ru/page,part,two и ещё https://github.com/x/y,z потом",
+            "a,b,c https://t.me/c/123,456/789 и " + "очень длинное сообщение без точек ".repeat(10),
+        )
+        for (srMax in listOf(100, 200)) for (msg in cases) {
+            val r = Rules(off = setOf("sr_link_word"), srMaxLen = srMax).screenReader()
+            val segs = Pipeline.plan(msg, d, 0, 0, rules = r)
+            val model = segs.map { Normalizer.prepare(Marks.parse(it.text, 0).text, d.allowed, r) }
+            // куски вместе — слово в слово как всё сообщение без разрезов: адрес нигде не порван
+            fun words(t: String) = t.split(Regex("[^\\p{L}\\d+]+")).filter { it.isNotEmpty() }
+            assertEquals("[$srMax] $msg", words(Normalizer.prepare(msg, d.allowed, r)), words(model.joinToString(" ")))
+            assertEquals(msg, Regex("https?://|www\\.").findAll(msg).count(), model.sumOf { Regex("ссылка").findAll(it).count() })
+            assertTrue(model.joinToString(" "), model.none { it.contains("слэш") || it.contains("аааа") })
+            assertTrue(segs.size > 1)
+        }
+    }
+
+    /** Предел куска чтеца меряется текстом для модели: ссылка и числа раздуваются, кусок режется раньше. Книги — по исходнику. */
+    @Test fun srMaxLenMeasuredAfterNormalization() {
+        val msg = "Привет смотри что нашёл вчера вечером https://github.com/snakers4/silero-models/issues?page=2 😀😀 " +
+            "там пишут что новая версия читает быстрее и лучше а ещё можно настроить профили для книг и для чтеца так что попробуй " +
+            "обязательно и напиши мне своё мнение про вариант номер 12345 когда будет время"
+        val r = Rules(off = setOf("sr_fast_start"), srMaxLen = 200).screenReader()
+        fun model(t: String, rr: Rules) = Normalizer.prepare(Marks.parse(t, 0).text, d.allowed, rr)
+        val sr = Pipeline.plan(msg, d, 0, 0, rules = r)
+        assertTrue(sr.all { model(it.text, r).length <= 200 })
+        // книги: по исходнику, как было (предел 200 для сравнения)
+        val books = Pipeline.plan(msg, d, 0, 0, rules = Rules(maxLen = 200))
+        assertTrue(books.any { model(it.text, Rules()).length > 200 })
     }
 }

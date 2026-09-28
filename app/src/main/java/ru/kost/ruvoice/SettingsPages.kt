@@ -358,6 +358,7 @@ class RulesFragment : PageFragment(R.layout.fragment_rules) {
         }
         for (id in listOf(R.id.chunkBlock, R.id.rulesHint, R.id.rulesFilterBox)) v.findViewById<View>(id).visibility = if (english) View.GONE else View.VISIBLE
         v.findViewById<EditText>(R.id.maxLen).setText(prefs.maxLen.toString())
+        v.findViewById<EditText>(R.id.srMaxLen).setText(prefs.srMaxLen.toString())
         v.findViewById<EditText>(R.id.rulesFilter).apply {
             doAfterTextChanged { filter(v, it?.toString().orEmpty()) }
             filter(v, text.toString())
@@ -608,6 +609,8 @@ class RulesFragment : PageFragment(R.layout.fragment_rules) {
             .filter { it.tag is String }
             .filter { it.isChecked == (it.tag in Rules.DEFAULT_OFF) }.map { it.tag as String }
         if (!english) prefs.maxLen = (v.findViewById<EditText>(R.id.maxLen).str().toIntOrNull() ?: Rules.MAX_LEN_DEFAULT)
+            .coerceIn(Rules.MAX_LEN_MIN, Rules.MAX_LEN_MAX)
+        if (!english) prefs.srMaxLen = (v.findViewById<EditText>(R.id.srMaxLen).str().toIntOrNull() ?: Rules.SR_MAX_LEN_DEFAULT)
             .coerceIn(Rules.MAX_LEN_MIN, Rules.MAX_LEN_MAX)
         v.findViewById<Slider>(R.id.srRate)?.let { prefs.srRate = it.value }
         v.findViewById<Slider>(R.id.srPitch)?.let { prefs.srPitch = it.value }

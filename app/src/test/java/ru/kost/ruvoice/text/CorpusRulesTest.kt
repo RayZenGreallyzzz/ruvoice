@@ -125,6 +125,10 @@ class CorpusRulesTest {
         assertEquals("смотри www точка ya точка ru слэш page вопрос id равно четыре два амперсанд экс равно один, дальше",
             n("см. www.ya.ru/page?id=42&x=1, дальше"))
         assertEquals("Откройте и.", Normalizer.numbers("Откройте https://a.b/5Mb/s и.", Rules(setOf("drop_links"))))
+        // sr_link_word — только у чтеца: «ссылка» и сайт без www, важнее drop_links, почту не трогает
+        val srLink = Rules(setOf("sr_link_word", "drop_links")).screenReader()
+        assertEquals("Откройте ссылка, эй точка би и ссылка, ya точка ru, почта эй собака би точка ru", Normalizer.numbers("Откройте https://a.b/5Mb/s и www.ya.ru, почта a@b.ru", srLink))
+        assertEquals("Откройте и.", Normalizer.numbers("Откройте https://a.b/5Mb/s и.", Rules(setOf("sr_link_word", "drop_links"))))
         assertEquals("Ryzen пять тысяч восемьсот экс три ди, джи пи т+и-четыре оу, экран одна тысяча восемьдесят пи, витамин-ди",
             n("Ryzen 5800X3D, GPT-4o, экран 1080p, витамин-D"))
         assertEquals("пиши на mail точка ru собака example точка com, не на тот", n("пиши на mail.ru@example.com, не на тот"))

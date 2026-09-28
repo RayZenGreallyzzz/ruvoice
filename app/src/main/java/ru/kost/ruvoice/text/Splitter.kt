@@ -48,7 +48,9 @@ object Splitter {
         return s.split(Regex("\\n+")).map { it.trim() }.filter { it.isNotEmpty() }
     }
 
-    fun sentences(text: String, rules: Rules = Rules()): List<String> {
+    /** [measure] — длина текста для модели (после нормализации); задан — предел куска меряется ею, а не исходником
+     * (у экранного чтеца: ссылка, эмодзи, число раздуваются в 2–3 раза, а длинный кусок держит перебившую фразу). */
+    fun sentences(text: String, rules: Rules = Rules(), measure: ((String) -> Int)? = null): List<String> {
         // Реальный пайплайн режет на предложения ДО Normalizer.prepare() (review round 1 п.1):
         // без этого «Всё. . . Дальше.» резалось бы по каждой точке многоточия. punctuation()
         // идемпотентна, повторный вызов внутри prepare() ничего не портит.
@@ -59,16 +61,43 @@ object Splitter {
             if (merged.isNotEmpty() && endsWithAbbrev(merged.last())) merged[merged.size - 1] += " $piece"
             else merged += piece
         }
-        return merged.filter { it.isNotBlank() }.flatMap { limit(it.trim(), maxLen) }
+        return merged.filter { it.isNotBlank() }.flatMap { limit(it.trim(), maxLen, measure) }
     }
 
-    /** Индекс разреза строки длиннее maxLen: последняя запятая, иначе пробел, иначе ровно maxLen. */
-    fun cut(s: String, maxLen: Int) = s.lastIndexOf(',', maxLen).takeIf { it > 0 } ?: s.lastIndexOf(' ', maxLen).takeIf { it > 0 } ?: maxLen
+    private const val inflating = "@#%&/_=+~$€₽"
+    /** В тексте есть чему раздуться при нормализации: цифры, латиница, значки, эмодзи. Нет — мерить незачем. */
+    fun mayInflate(t: String) = t.any { it in inflating || it.isDigit() || it.code >= 0x2000 || it in 'a'..'z' || it in 'A'..'Z' }
 
-    private fun limit(s: String, maxLen: Int): List<String> {
-        if (s.length <= maxLen) return listOf(s)
-        val cut = cut(s, maxLen)
-        val head = s.substring(0, cut + 1).trim().trimEnd(',')
-        return listOf(head) + limit(s.substring(cut + 1).trim(), maxLen)
+    /** Разрез как [cut], но голова не длиннее [maxLen] по [measure]: раздулась — режем раньше, пропорционально
+     * раздуванию, пока левее есть запятая или пробел. Без раздувания разрез тот же, что у [cut]. */
+    fun cutMeasured(t: String, maxLen: Int, measure: (String) -> Int): Int {
+        var c = cut(t, maxLen)
+        while (c + 1 < t.length) {
+            val len = measure(head(t, c))
+            if (len <= maxLen) break
+            val limit = minOf(c - 1, c * maxLen / len)
+            val next = cut(t, limit)
+            if (limit <= 0 || next >= c || (t[next] != ',' && t[next] != ' ')) break
+            c = next
+        }
+        return c
+    }
+    fun head(t: String, c: Int) = t.substring(0, c + 1).trim().trimEnd(',')
+
+    /** Индекс разреза строки длиннее maxLen: последняя запятая, иначе пробел, иначе ровно maxLen. Внутри адреса
+     * ([Normalizer.urlRe]) не режем: запятая в «?ids=1,2» или адрес длиннее maxLen иначе рвали ссылку, и хвост
+     * читался по частям; нет разреза левее — режем сразу после адреса. */
+    fun cut(s: String, maxLen: Int): Int {
+        if (!Normalizer.hasUrl(s)) return s.lastIndexOf(',', maxLen).takeIf { it > 0 } ?: s.lastIndexOf(' ', maxLen).takeIf { it > 0 } ?: maxLen
+        val urls = Normalizer.urlRe.findAll(s).map { it.range }.toList()
+        fun last(c: Char): Int? { var i = s.lastIndexOf(c, maxLen); while (i > 0 && urls.any { i in it }) i = s.lastIndexOf(c, i - 1); return i.takeIf { it > 0 } }
+        return last(',') ?: last(' ') ?: urls.firstOrNull { maxLen in it }?.last ?: maxLen
+    }
+
+    private fun limit(s: String, maxLen: Int, measure: ((String) -> Int)?): List<String> {
+        if (s.length <= maxLen && (measure == null || !mayInflate(s) || measure(s) <= maxLen)) return listOf(s)
+        val cut = if (measure == null) cut(s, maxLen) else cutMeasured(s, maxLen, measure)
+        if (cut + 1 >= s.length) return listOf(s)  // адрес до самого конца или короткий кусок без запятой и пробела — резать негде
+        return listOf(head(s, cut)) + limit(s.substring(cut + 1).trim(), maxLen, measure)
     }
 }

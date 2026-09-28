@@ -151,14 +151,23 @@ object Normalizer {
     // Черта из знаков — подпись на форуме («--------------------»), разделитель в тексте («=====», «_____», «***»):
     // пауза как у тире. Раньше дефисы уходили в модель как есть, а при symbol_names «*» звучала двадцать раз.
     private val ruleLineRe = Regex("""(?<![\p{L}\d])([-_=*~#])\1{2,}(?![\p{L}\d])""")
+    /** [f] — только к кускам текста вне адресов ([urlRe]); сами адреса как были. */
+    private fun outsideUrls(s: String, f: (String) -> String): String {
+        if (!hasUrl(s)) return f(s)
+        val sb = StringBuilder(); var at = 0
+        for (m in urlRe.findAll(s)) { sb.append(f(s.substring(at, m.range.first))).append(m.value); at = m.range.last + 1 }
+        return sb.append(f(s.substring(at))).toString()
+    }
+    fun hasUrl(s: String) = s.contains("http", ignoreCase = true) || s.contains("www.", ignoreCase = true) || '@' in s
     fun punctuation(text: String, rules: Rules = Rules()): String {
         if (!rules.on("punct")) return text
         var s = multiExclQuestRe.replace(text) { if ('?' in it.value && '!' in it.value) "?!" else it.value.first().toString() }
         s = ellipsisRe.replace(s, "…")
-        s = missingSpaceStopRe.replace(s, "$1 ")
+        // внутри адреса не трогаем: «?ids=1,2&sort=asc,desc» с пробелом после запятой рвался, хвост читался отдельно
+        s = outsideUrls(s) { missingSpaceStopRe.replace(it, "$1 ") }
         // «Ну…ладно» — многоточие вплотную к любой букве: без пробела слово после него шло без ударения и паузы
         s = ellipsisGlueRe.replace(s, "… ")
-        s = missingSpaceCommaRe.replace(s, ", ")
+        s = outsideUrls(s) { missingSpaceCommaRe.replace(it, ", ") }
         s = asciiArrowRe.replace(s, " → ")
         // черта в начале или в конце фразы — ни о чём, только висячее тире; между словами — пауза
         s = ruleLineRe.replace(s) { m ->
@@ -1970,9 +1979,10 @@ object Normalizer {
 
     // Ссылка читается по частям, как у ru-normalizr: буквы словами (транслит ниже), цифры по одной,
     // разделители названиями; схема «https://» и хвостовая пунктуация не читаются. Правила
-    // drop_links / drop_emails выкидывают ссылку или почту целиком.
+    // drop_links / drop_emails выкидывают ссылку или почту целиком; у чтеца с sr_link_word (Rules.LINK_WORD)
+    // ссылка — словом «ссылка» и сайтом без «www.» («ссылка, youtube точка com»), это важнее drop_links. Почту не трогает.
     // Почта — тем же способом: «mail@example.com» → «мейл собака ексампл точка ком».
-    private val urlRe = Regex("""(?:https?://|www\.)[^\s<>«»"']*[^\s<>«»"'.,;:!?)\]}/]|[\w.+-]+@[\w-]+(?:\.[\w-]+)+""", RegexOption.IGNORE_CASE)
+    val urlRe = Regex("""(?:https?://|www\.)[^\s<>«»"']*[^\s<>«»"'.,;:!?)\]}/]|[\w.+-]+@[\w-]+(?:\.[\w-]+)+""", RegexOption.IGNORE_CASE)
     private val urlSeparators = mapOf(':' to "двоеточие", '/' to "слэш", '.' to "точка", '?' to "вопрос", '&' to "амперсанд",
         '=' to "равно", '-' to "дефис", '_' to "нижнее подчёркивание", '#' to "решётка", '%' to "процент", '+' to "плюс",
         '@' to "собака", '~' to "тильда")
@@ -1988,14 +1998,16 @@ object Normalizer {
         return urlSingleLetterRe.replace(sb, { Abbrev.latLetterNames.getValue(it.value[0].uppercaseChar()) })
             .replace(Regex(" {2,}"), " ").trim()
     }
+    private val urlHostRe = Regex("""^(?:https?://)?(?:www\.)?([^/?#:]+)""", RegexOption.IGNORE_CASE)
+    private fun urlHost(url: String) = urlHostRe.find(url)?.groupValues?.get(1) ?: url
     // Без read_links адрес остаётся как есть: на время обработки прячем его за плейсхолдером
     // без цифр и букв, чтобы «5Mb» внутри не стало числом, потом возвращаем.
     fun numbers(text: String, rules: Rules = Rules()): String {
-        val hasUrl = text.contains("http", ignoreCase = true) || text.contains("www.", ignoreCase = true) || '@' in text
-        if (!hasUrl) return aboutOne(numbersInner(text, rules))
+        if (!hasUrl(text)) return aboutOne(numbersInner(text, rules))
         val kept = mutableListOf<String>()
         val masked = urlRe.replace(text) {
             when {
+                '@' !in it.value && rules.on(Rules.LINK_WORD) -> "ссылка, " + spellUrl(urlHost(it.value))
                 rules.on(if ('@' in it.value) "drop_emails" else "drop_links") -> ""
                 rules.on("read_links") -> spellUrl(it.value)
                 else -> { kept += it.value; "\u0001${"\u0002".repeat(kept.size)}\u0001" }

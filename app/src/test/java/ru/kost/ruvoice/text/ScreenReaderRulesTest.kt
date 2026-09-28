@@ -37,13 +37,21 @@ class ScreenReaderRulesTest {
     }
 
     @Test fun keepsOtherSettings() {
-        val base = Rules(off = setOf("phones", "lead_in"), maxLen = 200, focus = 2)
+        val base = Rules(off = setOf("phones", "lead_in"), maxLen = 400, focus = 2, srMaxLen = 150)
         val sr = base.screenReader()
         assertFalse(sr.on("phones"))
-        assertEquals(200, sr.maxLen)
+        // предел куска у чтеца свой (sr_max_len), у книг прежний
+        assertEquals(150, sr.maxLen)
+        assertEquals(400, base.maxLen)
         assertEquals(2, sr.focusLevel)
         // «Служебные символы везде» уже включены — остаются включены
         assertTrue(Rules(off = setOf("symbol_names")).screenReader().on("symbol_names"))
+    }
+
+    @Test fun srMaxLenCutsTail() {
+        val long = (1..60).joinToString(" ") { "слово$it" }  // ~480 символов без точек
+        assertTrue(Splitter.sentences(long, Rules(srMaxLen = 200).screenReader()).all { it.length <= 200 })
+        assertEquals(2, Splitter.sentences(long, Rules(srMaxLen = 200)).size)  // книги — по 400
     }
 
     @Test fun booksVsTalkBack() {

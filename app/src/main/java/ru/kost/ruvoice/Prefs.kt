@@ -94,6 +94,7 @@ class Prefs(private val context: Context) {
         get() = p.getString("rules_off", "")!!.split(',').filter { it in Rules.KEYS }.toSet()
         set(v) = p.edit().putString("rules_off", v.filter { it in Rules.KEYS }.joinToString(",")).apply()
     var maxLen: Int get() = p.getInt("max_len", Rules.MAX_LEN_DEFAULT); set(v) = p.edit().putInt("max_len", v).apply()
+    var srMaxLen: Int get() = p.getInt("sr_max_len", Rules.SR_MAX_LEN_DEFAULT); set(v) = p.edit().putInt("sr_max_len", v).apply()
     /** Вкладка «Проверка»: копить имена; список, куда добавлять. */
     var auditNames: Boolean get() = p.getBoolean("audit_names", false); set(v) = p.edit().putBoolean("audit_names", v).apply()
     /** Список, куда в прошлый раз добавляли слово с вкладки «Проверка». */
@@ -119,7 +120,7 @@ class Prefs(private val context: Context) {
 
     /** Правила для пайплайна: выключенные тумблеры плюс «прямая речь» с вкладки «Голос». */
     fun rules() = Rules(rulesOff + (if (quoteOn) emptySet() else setOf("speech")), maxLen.coerceIn(Rules.MAX_LEN_MIN, Rules.MAX_LEN_MAX),
-        focusLevel.coerceIn(Rules.FOCUS_MIN, Rules.FOCUS_MAX))
+        focusLevel.coerceIn(Rules.FOCUS_MIN, Rules.FOCUS_MAX), srMaxLen.coerceIn(Rules.MAX_LEN_MIN, Rules.MAX_LEN_MAX))
 
     /** Выключенные списки вида — имена через \n (в имени может быть запятая). */
     fun off(kind: Dicts.Kind): Set<String> =
@@ -189,6 +190,7 @@ class Prefs(private val context: Context) {
             "quote_on" to quoteOn,
             "rules_off" to rulesOff.joinToString(","),
             "max_len" to maxLen,
+            "sr_max_len" to srMaxLen,
             "focus_level" to focusLevel,
             "en_min_words" to enMinWords,
             "en_min_words_sr" to enMinWordsSr,
@@ -242,6 +244,7 @@ class Prefs(private val context: Context) {
         (prefsMap["quote_on"] as? Boolean)?.let { quoteOn = it }
         (prefsMap["rules_off"] as? String)?.let { rulesOff = it.split(',').toSet() }
         (prefsMap["max_len"] as? Number)?.let { maxLen = it.toInt().coerceIn(Rules.MAX_LEN_MIN, Rules.MAX_LEN_MAX) }
+        (prefsMap["sr_max_len"] as? Number)?.let { srMaxLen = it.toInt().coerceIn(Rules.MAX_LEN_MIN, Rules.MAX_LEN_MAX) }
         (prefsMap["en_min_words"] as? Number)?.let { enMinWords = it.toInt().coerceIn(English.MIN_WORDS, English.MAX_WORDS) }
         (prefsMap["en_min_words_sr"] as? Number)?.let { enMinWordsSr = it.toInt().coerceIn(English.MIN_WORDS, English.MAX_WORDS) }
         (prefsMap["en_sr_timeout"] as? Number)?.let { enSrTimeoutMs = it.toInt().coerceIn(EnglishProxy.SR_TIMEOUT_MIN, EnglishProxy.SR_TIMEOUT_MAX) }

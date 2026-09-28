@@ -110,6 +110,8 @@ object Pipeline {
         // реплики читалка/пользователь и так делают между вызовами.
         val segments = if (rules.on("ssml") && Ssml.isSsml(src)) Ssml.parse(src) else
             Splitter.paragraphs(src, rules).mapIndexed { i, p -> Segment(p, paragraph = true) }.let { if (it.isEmpty()) it else it.dropLast(1) + it.last().copy(paragraph = false) }
+        // длина куска для модели: у чтеца предел куска меряется ею (Splitter.sentences), у быстрого старта — всегда
+        val measure = { s: String -> Normalizer.prepare(Marks.parse(s, 0).text, d.allowed, rules).length }
         val out = ArrayList<Segment>()
         for (seg in segments) {
             // Реплика в абзаце тянется через предложения, пока её не закроет авторский хвост или кавычка.
@@ -127,7 +129,7 @@ object Pipeline {
             pieces += txt.substring(from)
             for ((pi, piece) in pieces.withIndex()) {
                 val lastPiece = pi == pieces.size - 1
-                val sents = Splitter.sentences(piece, rules)
+                val sents = Splitter.sentences(piece, rules, measure.takeIf { rules.on(Rules.SCREEN_READER) })
                 for ((i, s) in sents.withIndex()) {
                     val lastInPiece = i == sents.size - 1
                     // {pause:N} на конце абзаца — маркер про паузу предложения (ruling, task 26/п.11
@@ -168,7 +170,7 @@ object Pipeline {
                 }
             }
         }
-        if (rules.on("fast_start")) fastStart(out, d.allowed, rules)
+        if (rules.on("fast_start")) fastStart(out, measure)
         return carryProsody(out)
     }
 
@@ -177,29 +179,16 @@ object Pipeline {
      * считается, пока играет голова. Режется как limit, по запятой, но один раз.
      * Длина — текста для модели, после нормализации: ссылка, эмодзи, число раздуваются в 2–3 раза
      * («t.me/c/123…» — «ти точка ме слэш си слэш один два три…»). Без раздувания разрез тот же, что по исходному. */
-    private const val inflating = "@#%&/_=+~$€₽"
-    private fun fastStart(out: ArrayList<Segment>, allowed: String, rules: Rules) {
+    private fun fastStart(out: ArrayList<Segment>, measure: (String) -> Int) {
         val i = out.indexOfFirst { it.text.isNotBlank() }
         if (i < 0) return
         val seg = out[i]; val t = seg.text
-        fun modelLen(s: String) = Normalizer.prepare(Marks.parse(s, 0).text, allowed, rules).length
-        fun head(c: Int) = t.substring(0, c + 1).trim().trimEnd(',')
         // короткую фразу чтеца без цифр, латиницы и значков не нормализуем лишний раз — раздуваться в ней нечему
-        if (t.length <= Rules.FAST_START_LEN && (t.none { it in inflating || it.isDigit() || it.code >= 0x2000 || it in 'a'..'z' || it in 'A'..'Z' } ||
-                modelLen(t) <= Rules.FAST_START_LEN)) return
-        var c = Splitter.cut(t, Rules.FAST_START_LEN)
+        if (t.length <= Rules.FAST_START_LEN && (!Splitter.mayInflate(t) || measure(t) <= Rules.FAST_START_LEN)) return
+        val c = Splitter.cutMeasured(t, Rules.FAST_START_LEN, measure)
         if (c + 1 >= t.length) return   // запрос короче порога без запятой и пробела — резать негде
-        // голова раздулась — режем раньше, пропорционально раздуванию, пока есть запятая или пробел левее
-        while (true) {
-            val len = modelLen(head(c))
-            if (len <= Rules.FAST_START_LEN) break
-            val limit = minOf(c - 1, c * Rules.FAST_START_LEN / len)
-            val next = Splitter.cut(t, limit)
-            if (limit <= 0 || next >= c || (t[next] != ',' && t[next] != ' ')) break
-            c = next
-        }
         out[i] = seg.copy(text = t.substring(c + 1).trim())
-        out.add(i, Segment(head(c), speech = seg.speech, en = seg.en))
+        out.add(i, Segment(Splitter.head(t, c), speech = seg.speech, en = seg.en))
     }
 
     /** Текст сегмента → слова для модели с ударениями (до Stress.forModel), тем же путём, что synthSegment. */
