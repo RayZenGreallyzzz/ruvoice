@@ -73,8 +73,9 @@ class AccessibilityChecksTest {
     @Test fun settingsTabs() {
         ActivityScenario.launch(SettingsActivity::class.java).use {
             assertKeyboardReachable()
-            for (tab in listOf(R.string.tab_pauses, R.string.tab_stress, R.string.tab_replace, R.string.tab_audit, R.string.tab_voice)) {
-                onView(allOf(withText(ctx.getString(tab)), isDescendantOfA(withId(R.id.tabs)))).perform(click())
+            for (tab in listOf(R.string.tab_pauses, R.string.tab_stress, R.string.tab_replace, R.string.tab_audit, R.string.tab_voice, R.string.tab_profiles)) {
+                // полоса вкладок прокручивается (с «Профилями» не влезает): крайняя вкладка иначе видна не целиком
+                onView(allOf(withText(ctx.getString(tab)), isDescendantOfA(withId(R.id.tabs)))).perform(androidx.test.espresso.action.ViewActions.scrollTo(), click())
                 assertKeyboardReachable()
             }
         }
