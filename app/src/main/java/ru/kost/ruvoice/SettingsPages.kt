@@ -22,6 +22,7 @@ import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.slider.Slider
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.textfield.MaterialAutoCompleteTextView
+import com.google.android.material.textfield.TextInputLayout
 import ru.kost.ruvoice.text.English
 import ru.kost.ruvoice.text.Rules
 
@@ -89,6 +90,11 @@ class VoiceFragment : PageFragment(R.layout.fragment_voice) {
         return listOf(getString(R.string.quote_voice_default)) + Speaker.sameEngine(s, d, packs).map { Speaker.label(it) }
     }
     private val rateItems by lazy { rates.map { getString(R.string.sample_rate_item, it) } }
+    /** Голоса из prefs нет на телефоне (профиль или файл с другого телефона, пак удалили): в выпадашке —
+     * тот, которым сейчас читается, но в prefs он не пишется, пока голос не выберут сами, — вернули пак,
+     * и профиль снова читает своим голосом. */
+    private var voiceKept = false
+    private var quoteKept = false
 
     override fun load(v: View) {
         // lite без пака: голосов нет — пустые выпадашки, кнопки ниже ничего не делают.
@@ -97,12 +103,18 @@ class VoiceFragment : PageFragment(R.layout.fragment_voice) {
         val voiceView = v.dropdown(R.id.voice, voices.map { Speaker.label(it) }, Speaker.label(main))
         val quote = Speaker.resolve(prefs.quoteVoice, d, packs)?.name?.let(Speaker::label)?.takeIf { it in quoteItems(main) }
         val quoteView = v.dropdown(R.id.quoteVoice, quoteItems(main), quote ?: quoteItems(main).first())
+        voiceKept = voices.isNotEmpty() && Speaker.resolve(prefs.voice, d, packs) == null
+        quoteKept = voices.isNotEmpty() && prefs.quoteVoice.isNotEmpty() && Speaker.resolve(prefs.quoteVoice, d, packs) == null
+        voiceView.missing(if (voiceKept) prefs.voice else null, Speaker.label(main))
+        quoteView.missing(if (quoteKept) prefs.quoteVoice else null, quoteView.str())
         voiceView.setOnItemClickListener { _, _, _, _ ->
+            voiceKept = false; voiceView.missing(null, "")
             // сменился движок — список прямой речи другой, несовместимый выбор на «как основной»
             val items = quoteItems(nameOf(voiceView.str()) ?: main)
             quoteView.setSimpleItems(items.toTypedArray())
-            if (quoteView.str() !in items) quoteView.setText(items.first(), false)
+            if (quoteView.str() !in items) { quoteView.setText(items.first(), false); quoteKept = false; quoteView.missing(null, "") }
         }
+        quoteView.setOnItemClickListener { _, _, _, _ -> quoteKept = false; quoteView.missing(null, "") }
         v.dropdown(R.id.sampleRate, rateItems, rateItems[rates.indexOf(prefs.sampleRate).coerceAtLeast(0)])
         v.rateSlider(R.id.rate, R.id.rateValue, prefs.rate, getString(R.string.quote_rate))
         v.rateSlider(R.id.pitch, R.id.pitchValue, prefs.pitch, getString(R.string.quote_pitch))
@@ -138,9 +150,9 @@ class VoiceFragment : PageFragment(R.layout.fragment_voice) {
 
     override fun save(v: View) {
         val main = nameOf(v.findViewById<TextView>(R.id.voice).str()) ?: prefs.voice
-        if (main in voices) prefs.voice = main
+        if (main in voices && !voiceKept) prefs.voice = main
         // без голосов (lite до пака) выпадашка пустая — не затирать голос прямой речи из prefs
-        if (voices.isNotEmpty()) prefs.quoteVoice = nameOf(v.findViewById<TextView>(R.id.quoteVoice).str())?.takeIf { Speaker.label(it) in quoteItems(main) } ?: ""
+        if (voices.isNotEmpty() && !quoteKept) prefs.quoteVoice = nameOf(v.findViewById<TextView>(R.id.quoteVoice).str())?.takeIf { Speaker.label(it) in quoteItems(main) } ?: ""
         rateItems.indexOf(v.findViewById<TextView>(R.id.sampleRate).str()).let { if (it >= 0) prefs.sampleRate = rates[it] }
         prefs.rate = v.findViewById<Slider>(R.id.rate).value
         prefs.pitch = v.findViewById<Slider>(R.id.pitch).value
@@ -152,6 +164,13 @@ class VoiceFragment : PageFragment(R.layout.fragment_voice) {
     }
 
     private fun TextView.str() = text.toString()
+
+    /** Подпись под выпадашкой: голоса [name] нет на телефоне, читает [shown]; null — убрать подпись. */
+    private fun View.missing(name: String?, shown: String) {
+        var p = parent
+        while (p != null && p !is TextInputLayout) p = p.parent
+        (p as? TextInputLayout)?.helperText = name?.let { getString(R.string.voice_missing, Speaker.label(it), shown) }
+    }
 
     private fun View.dropdown(id: Int, items: List<String>, value: String) =
         findViewById<MaterialAutoCompleteTextView>(id).apply {
@@ -441,7 +460,7 @@ class RulesFragment : PageFragment(R.layout.fragment_rules) {
             Thread {
                 // свой клиент: общий сервиса может быть занят чтением, окно ждало бы, пока дочитает
                 val voices = EnglishProxy.create(ctx).let { p -> try { p.voices(engine.pkg) } finally { p.release() } }
-                if (voices != null) offline = voices.any { it.offline }
+                if (voices != null) { offline = voices.any { it.offline }; enVoiceMissing = gone(voices) }
                 activity?.runOnUiThread {
                     loading = false
                     if (!isAdded) return@runOnUiThread
@@ -461,7 +480,7 @@ class RulesFragment : PageFragment(R.layout.fragment_rules) {
                         .setTitle(R.string.en_voice)
                         .setSingleChoiceItems(labels.toTypedArray(), picked) { _, i -> picked = i; if (auto) sample.play(i) }
                         .setPositiveButton(R.string.en_voice_choose) { _, _ ->
-                            prefs.enVoice = if (picked == 0) "" else voices[picked - 1].name; describeVoice(row)
+                            prefs.enVoice = if (picked == 0) "" else voices[picked - 1].name; enVoiceMissing = false; describeVoice(row)
                         }
                         .setNeutralButton(R.string.preview, null)
                         .setNegativeButton(R.string.cancel, null)
@@ -484,12 +503,17 @@ class RulesFragment : PageFragment(R.layout.fragment_rules) {
 
     /** Есть ли у выбранного движка офлайн-голос для английского: null — ещё не знаем. */
     @Volatile private var offline: Boolean? = null
+    /** Голоса из prefs.enVoice у движка нет (удалили, профиль или файл с другого телефона): сервис читает
+     * голосом по умолчанию (EnglishProxy.applyVoice), строка говорит об этом прямо. */
+    @Volatile private var enVoiceMissing = false
     private var refreshEnglish: () -> Unit = {}
 
     /** Голос по умолчанию сервис берёт офлайн (EnglishProxy.pickOffline); если офлайн-голосов нет — прямо
      * в строке предупреждаем, что текст может уходить в интернет. */
     private fun describeVoice(row: View) {
-        row.findViewById<TextView>(R.id.hint).text = if (prefs.enVoice.isNotEmpty())
+        row.findViewById<TextView>(R.id.hint).text = if (prefs.enVoice.isNotEmpty() && enVoiceMissing)
+            getString(R.string.en_voice_missing, EnglishProxy.voiceTitle(prefs.enVoice, null, Locale("ru"), getString(R.string.en_voice_word)))
+        else if (prefs.enVoice.isNotEmpty())
             getString(R.string.en_voice_value, EnglishProxy.voiceTitle(prefs.enVoice, null, Locale("ru"), getString(R.string.en_voice_word)))
         else when (offline) {
             false -> getString(R.string.en_voice_default_online)
@@ -507,10 +531,12 @@ class RulesFragment : PageFragment(R.layout.fragment_rules) {
         val engine = EnglishProxy.chosen(ctx, prefs.enEngine) ?: return
         Thread {
             val voices = EnglishProxy.create(ctx).let { p -> try { p.voices(engine.pkg) } finally { p.release() } } ?: return@Thread
-            offline = voices.any { it.offline }
+            offline = voices.any { it.offline }; enVoiceMissing = gone(voices)
             activity?.runOnUiThread { if (isAdded) describeVoice(row) }
         }.start()
     }
+
+    private fun gone(voices: List<EnglishProxy.VoiceInfo>) = prefs.enVoice.isNotEmpty() && voices.none { it.name == prefs.enVoice }
 
     /** Выбранный движок; удалили — говорим прямо, что английский сейчас читается по-русски. */
     private fun describeEngine(row: View) {

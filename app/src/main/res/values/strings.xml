@@ -73,6 +73,7 @@
     <string name="quote_on">Распознавать прямую речь</string>
     <string name="quote_voice">Голос прямой речи</string>
     <string name="quote_voice_default">как основной</string>
+    <string name="voice_missing">Голоса «%1$s» на телефоне нет, сейчас читает %2$s. Выбор сохранён: вернёте пак — голос вернётся.</string>
     <string name="quote_rate">Темп</string>
     <string name="quote_pitch">Высота</string>
     <string name="quote_rate_a11y">Темп прямой речи</string>
@@ -387,6 +388,7 @@
     <string name="en_voice_default_online">По умолчанию. Офлайн-голоса для английского у движка нет, текст может уходить в интернет. Скачайте английский голос в настройках движка.</string>
     <string name="en_voice_no_engine">Сначала выберите движок для английского.</string>
     <string name="en_voice_value">Сейчас: %1$s</string>
+    <string name="en_voice_missing">Выбранного голоса (%1$s) у движка больше нет, английский читается голосом по умолчанию. Выберите голос здесь.</string>
     <string name="en_voice_word">голос</string>
     <string name="en_voice_loading">Спрашиваю голоса у движка…</string>
     <string name="en_voice_none">У движка «%1$s» не нашлось английских голосов. Их можно скачать в настройках самого движка.</string>
