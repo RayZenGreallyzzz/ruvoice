@@ -430,14 +430,18 @@ class SileroTtsService : TextToSpeechService() {
         val t0 = System.currentTimeMillis()
         firstAudioAt = 0L
         try {
-            val sr = prefs.sampleRate
             // Голос запроса — по именам; models.data и модель — после кэша фраз: готовая фраза звучит сразу, и после
             // перезапуска процесса тоже, пока разбираются данные (~10 с на A32)
-            val wantedName = Speaker.fromTtsName(request.voiceName, voiceNames()).takeIf { known(it) } ?: currentName() ?: run {
+            val asked = Speaker.fromTtsName(request.voiceName, voiceNames()).takeIf { known(it) }
+            val wantedName = asked ?: currentName() ?: run {
                 Log.e(SileroModels.TAG, "голосов нет: сборка без модели и без пака"); callback.error(TextToSpeech.ERROR_NOT_INSTALLED_YET); return
             }
-            // Экранный чтец (TalkBack и др.) — свои правила, темп и высота поверх общих (секция «Чтение с экрана»)
             val caller = ScreenReaders.caller(this, request.callerUid)
+            // читалка сменила голос на привязанный к профилю — профиль включается до чтения настроек ниже.
+            // «Прослушать» в самом приложении не в счёт: голос там меняют на вкладке «Голос» (VoiceFragment)
+            if (asked != null && caller?.pkg != packageName) Profiles(this).followVoice(caller?.pkg ?: "?", asked)?.let { note("профиль «${it.name}»: ${caller?.pkg ?: "?"} выбрала голос $asked") }
+            val sr = prefs.sampleRate
+            // Экранный чтец (TalkBack и др.) — свои правила, темп и высота поверх общих (секция «Чтение с экрана»)
             val screenReader = caller != null && ScreenReaders.isScreenReader(prefs, caller)
             caller?.let { prefs.rememberCaller(it) }
             // TalkBack шлёт темп до ×6 (и умножает на системный) — для чтеца потолок ×6, книгам ×3 как было

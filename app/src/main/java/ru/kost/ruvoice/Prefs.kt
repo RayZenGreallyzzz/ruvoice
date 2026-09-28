@@ -202,7 +202,8 @@ class Prefs(private val context: Context) {
         fun all(kind: Dicts.Kind) = dictFiles(kind).associate { Dicts.name(it) to it.readText() }
         val auditLists = Audit.Kind.values().associate { it.name.lowercase() to audit.text(it) }.filterValues { it.isNotEmpty() }
         val profiles = Profiles(context)
-        val entries = profiles.snapshot().map { SettingsJson.ProfileEntry(it.name, it.main, it.data) }
+        val binds = profiles.binds().entries.associate { (v, id) -> id to v }
+        val entries = profiles.snapshot().map { SettingsJson.ProfileEntry(it.name, it.main, it.data, binds[it.id]) }
         return SettingsJson.build(prefsMap, all(Dicts.Kind.STRESS), all(Dicts.Kind.REPLACE), off(Dicts.Kind.STRESS), off(Dicts.Kind.REPLACE), auditLists,
             entries, profiles.active().name)
     }

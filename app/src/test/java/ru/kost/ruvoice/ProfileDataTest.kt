@@ -30,4 +30,10 @@ class ProfileDataTest {
         val old = SettingsJson.parse("""{"app":"ruvoice","prefs":{"voice":"baya"}}""")
         assertNull(old.profiles); assertNull(old.activeProfile)
     }
+
+    @Test fun voiceBindingSurvivesExport() {
+        val json = SettingsJson.build(emptyMap(), emptyMap(), emptyMap(), emptySet(), emptySet(), emptyMap(),
+            listOf(SettingsJson.ProfileEntry("Основной", true, emptyMap()), SettingsJson.ProfileEntry("Книги", false, snap, "baya")), "Основной")
+        assertEquals(listOf(null, "baya"), SettingsJson.parse(json).profiles!!.map { it.voice })
+    }
 }
