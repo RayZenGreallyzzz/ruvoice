@@ -38,6 +38,45 @@ class DictsTest {
         assertEquals(asset, f.readText())
     }
 
+    /** Отключённая строка системного уходит в «Системный удалённые», переживает обновление (сверка по ключу,
+     * даже если вариант в assets поменялся) и возвращается, когда её убирают оттуда. */
+    @Test fun removedSystemLinesSurviveUpdateAndComeBack() {
+        val root = tmp.root
+        var stress = "# v1\nтворог твор+ог\nзамок з+амок\n"
+        var replace = "г. = год\n~(\\d+)р = $1 рублей\n"
+        fun install() = Dicts.installSystem(root) { path -> when (path) { "dicts/stress/Системный.txt" -> stress; "dicts/replace/Системный.txt" -> replace; else -> null } }
+        install()
+        val sys = Dicts.file(root, Dicts.Kind.STRESS, Dicts.SYSTEM)
+        val sysR = Dicts.file(root, Dicts.Kind.REPLACE, Dicts.SYSTEM)
+        Dicts.addRemoved(root, Dicts.Kind.STRESS, "творог твор+ог")
+        Dicts.addRemoved(root, Dicts.Kind.REPLACE, "~(\\d+)р = $1 рублей")
+        for (k in Dicts.Kind.values()) Dicts.rebuildSystem(root, k)
+        assertEquals("# v1\nзамок з+амок\n", sys.readText())
+        assertEquals("г. = год\n", sysR.readText())
+        // удалённые — сразу за системным; полная копия (Системный.full) в списки не попадает
+        Dicts.file(root, Dicts.Kind.STRESS, "Азбука").writeText("")
+        assertEquals(listOf(Dicts.SYSTEM, Dicts.REMOVED, "Азбука"), Dicts.files(root, Dicts.Kind.STRESS).map { Dicts.name(it) })
+        // обновление: ударение в «твороге» поменялось, слово всё равно остаётся убранным
+        stress = "# v2\nтворог тв+орог\nзамок з+амок\nмолоко молок+о\n"
+        replace = "г. = года\n~(\\d+)р = $1 руб.\n"
+        install()
+        assertEquals("# v2\nзамок з+амок\nмолоко молок+о\n", sys.readText())
+        assertEquals("г. = года\n", sysR.readText())
+        // вернули — в системный приходит вариант из новой версии, на прежнее место
+        Dicts.dropRemoved(root, Dicts.Kind.STRESS, "творог твор+ог")
+        Dicts.dropRemoved(root, Dicts.Kind.REPLACE, "~(\\d+)р = $1 рублей")
+        for (k in Dicts.Kind.values()) Dicts.rebuildSystem(root, k)
+        assertEquals(stress, sys.readText())
+        assertEquals(replace, sysR.readText())
+        assertEquals("", Dicts.file(root, Dicts.Kind.STRESS, Dicts.REMOVED).readText())
+    }
+
+    @Test fun scopesTreatRemovedAsSystem() {
+        assertTrue(Dicts.Scope.SYSTEM.covers(Dicts.REMOVED))
+        assertFalse(Dicts.Scope.USER.covers(Dicts.REMOVED))
+        assertTrue(Dicts.Scope.USER.covers(Dicts.MAIN))
+    }
+
     /** Свои списки перебивают системный: он первый в порядке слияния, а при совпадении побеждает поздний. */
     @Test fun userListsOverrideSystem() {
         val root = tmp.root

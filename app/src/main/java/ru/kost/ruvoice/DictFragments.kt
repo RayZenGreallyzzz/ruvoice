@@ -48,7 +48,8 @@ import ru.kost.ruvoice.text.Replacements
  * список (shown — индексы в lines) пересчитывается при любом изменении lines/фильтра, без
  * DiffUtil. Поиск по умолчанию идёт и по другим спискам вида (область — меню в поле поиска):
  * их строки (extra) идут после своих с подписью имени списка, тап открывает тот список и
- * редактор строки. Свайп удаляет строку с Undo, FAB открывает диалог добавления. После каждой
+ * редактор строки. Свайп удаляет строку с Undo (в системном — переносит в «Системный удалённые»,
+ * там — возвращает в системный), FAB открывает диалог добавления. После каждой
  * правки и переключения списков кэш словарей (DictCache) греется в фоне; индикатор виден,
  * только если прогрев длится дольше 150 мс.
  */
@@ -67,8 +68,8 @@ abstract class DictListFragment(layout: Int) : PageFragment(layout) {
 
     /** Файл текущего списка. */
     protected val file: File get() = prefs.current(kind)
-    /** Системный список: смотреть и выключать можно, править и удалять — нет. */
-    protected val readOnly: Boolean get() = Dicts.name(file) == Dicts.SYSTEM
+    /** Системный список и его удалённые: смотреть и смахивать строки можно, править и удалять — нет. */
+    protected val readOnly: Boolean get() = Dicts.isSystem(Dicts.name(file))
     private val lines = mutableListOf<String>()
     private val parsedLines = ArrayList<Any?>()
     /** Индексы записей (не комментариев) в порядке показа до фильтра; null — пересчитать. */
@@ -133,9 +134,9 @@ abstract class DictListFragment(layout: Int) : PageFragment(layout) {
 
     override fun load(v: View) {
         recycler = v.findViewById(R.id.list)
-        emptyView = v.findViewById<TextView>(R.id.empty).apply { setText(emptyHintRes) }
+        emptyView = v.findViewById(R.id.empty)
         v.findViewById<TextView>(R.id.help).setOnClickListener {
-            MaterialAlertDialogBuilder(requireContext()).setTitle(helpTitleRes).setMessage(helpRes)
+            MaterialAlertDialogBuilder(requireContext()).setTitle(helpTitleRes).setMessage(getString(helpRes) + "\n\n" + getString(R.string.system_swipe_help))
                 .setPositiveButton(android.R.string.ok, null).show()
         }
         v.findViewById<View>(R.id.check).setOnClickListener { showCheckDialog() }
@@ -206,6 +207,9 @@ abstract class DictListFragment(layout: Int) : PageFragment(layout) {
         nameField.setText(if (name in off) getString(R.string.dict_off_suffix, name) else name, false)
         onSwitch.isChecked = name !in off
         onSwitch.setText(if (name in off) R.string.dict_off else R.string.dict_on)
+        // удалённые в чтении не участвуют никогда — выключать нечего
+        onSwitch.visibility = if (name == Dicts.REMOVED) View.GONE else View.VISIBLE
+        emptyView.setText(if (name == Dicts.REMOVED) R.string.removed_empty_hint else emptyHintRes)
         addButton.visibility = if (readOnly) View.GONE else View.VISIBLE
         refresh()
         stamp = diskStamp()
@@ -214,7 +218,12 @@ abstract class DictListFragment(layout: Int) : PageFragment(layout) {
     /** Пишет lines в файл напрямую, без View — вызывается и из onPause/save (где view есть),
      * и из действий над списком (свайп, Undo, диалог), где к моменту записи view уже могло
      * не быть (например, Undo в Snackbar сработал после ухода со страницы). */
-    protected fun persist() { file.writeText(lines.joinToString("\n")); stamp = diskStamp(); warm() }
+    protected fun persist() {
+        // системный собирается из полной копии без удалённых (Dicts.rebuildSystem); переписывать его
+        // из lines незачем — только сдвинуло бы mtime и заставило заново разбирать 100 тыс. строк
+        if (Dicts.name(file) != Dicts.SYSTEM) file.writeText(lines.joinToString("\n"))
+        stamp = diskStamp(); warm()
+    }
 
     // ---- правки lines: только через эти методы, чтобы разбор и порядок не разъехались ----
     protected fun setLine(index: Int, line: String) { lines[index] = line; parsedLines[index] = parseLine(line); order = null }
@@ -261,30 +270,58 @@ abstract class DictListFragment(layout: Int) : PageFragment(layout) {
         MaterialAlertDialogBuilder(ctx).setTitle(R.string.check).setView(box).setPositiveButton(R.string.close, null).show()
     }
 
-    /** TalkBack: подпись двойного тапа («Изменить» / «Открыть в своём списке») и «Удалить» в меню
-     * действий — свайп незрячему недоступен, его забирает TalkBack. [list] — строка другого списка. */
+    /** TalkBack: подпись двойного тапа («Изменить» / «Открыть в своём списке») и действие смахивания
+     * («Удалить», в системном «Отключить», в удалённых «Вернуть») в меню действий — свайп незрячему
+     * недоступен, его забирает TalkBack. [list] — строка другого списка. */
     protected fun rowActions(row: View, list: String?, position: Int) {
         row.clearActions()
-        when {
-            list != null -> row.clickLabel(getString(R.string.open_in_list))
-            !readOnly -> {
-                row.clickLabel(getString(R.string.edit))
-                row.action(getString(R.string.delete)) { shown.getOrNull(position)?.let { deleteLine(it) } }
-            }
-        }
+        if (list != null) { row.clickLabel(getString(R.string.open_in_list)); return }
+        if (!readOnly) row.clickLabel(getString(R.string.edit))
+        row.action(getString(swipeLabel(Dicts.name(file)))) { shown.getOrNull(position)?.let { deleteLine(it) } }
     }
 
-    /** Удаляет строку файла и даёт «Отменить» в снекбаре. */
+    private fun swipeLabel(name: String) = when (name) { Dicts.SYSTEM -> R.string.system_disable; Dicts.REMOVED -> R.string.system_restore; else -> R.string.delete }
+
+    /** Убирает строку из открытого списка и даёт «Отменить» в снекбаре. Из системного строка уходит
+     * в «Системный удалённые», из удалённых — обратно в системный. */
     protected fun deleteLine(lineIndex: Int) {
+        val name = Dicts.name(file)
+        val root = requireContext().filesDir // Undo может сработать уже без контекста
         val removed = removeLine(lineIndex)
-        refresh(); persist()
+        persist(); moved(root, name, removed, away = true); refresh()
         // якорь на FAB: иначе снекбар ложится под «+», и тап по «Отменить» открывает диалог
-        Snackbar.make(recycler, R.string.deleted, 6000) // LENGTH_LONG (2,75 с) не хватает, чтобы дотянуться до «Отменить»
+        Snackbar.make(recycler, when (name) { Dicts.SYSTEM -> R.string.system_disabled; Dicts.REMOVED -> R.string.system_restored; else -> R.string.deleted },
+            6000) // LENGTH_LONG (2,75 с) не хватает, чтобы дотянуться до «Отменить»
             .setAnchorView(requireView().findViewById<View>(R.id.add))
             .setAction(R.string.undo) {
+                // за 6 с могли открыть другой список — возвращаем строку туда, откуда убрали
+                if (Dicts.name(file) != name) { prefs.setCurrent(kind, name); loadLines() }
                 insertLine(lineIndex.coerceAtMost(lines.size), removed)
-                refresh(); persist()
+                persist(); moved(root, name, removed, away = false); refresh()
             }.patient().show()
+    }
+
+    /** Вторая половина переноса между системным и удалёнными: [away] — строку [line] только что убрали
+     * из списка [name], иначе вернули в него. Прочие списки — просто удаление, делать нечего. */
+    private fun moved(root: File, name: String, line: String, away: Boolean) {
+        if (name != Dicts.SYSTEM && name != Dicts.REMOVED) return
+        if (name == Dicts.SYSTEM) {
+            if (away) Dicts.addRemoved(root, kind, line) else Dicts.dropRemoved(root, kind, line)
+            others.remove(Dicts.REMOVED)
+        }
+        // Системный.txt — всегда полная копия минус удалённые, из lines он не пишется (см. persist).
+        // Пересборка читает 4 МБ у ударений — не в UI-потоке.
+        val handler = Handler(Looper.getMainLooper())
+        Thread {
+            Dicts.rebuildSystem(root, kind)
+            handler.post {
+                others.remove(Dicts.SYSTEM)
+                if (view == null) return@post
+                // открыт системный: после его же свайпа lines уже такие, как на диске; иначе перечитать
+                if (Dicts.name(file) == Dicts.SYSTEM) { if (name == Dicts.SYSTEM) stamp = diskStamp() else loadLines() } else refresh()
+                warm()
+            }
+        }.start()
     }
 
     private fun snack(text: String) {
@@ -424,7 +461,7 @@ abstract class DictListFragment(layout: Int) : PageFragment(layout) {
         ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT) {
             override fun onMove(rv: RecyclerView, vh: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder) = false
             override fun getSwipeDirs(rv: RecyclerView, vh: RecyclerView.ViewHolder) =
-                if (readOnly || vh.bindingAdapterPosition >= shown.size) 0 else super.getSwipeDirs(rv, vh)
+                if (vh.bindingAdapterPosition >= shown.size) 0 else super.getSwipeDirs(rv, vh)
             override fun onSwiped(vh: RecyclerView.ViewHolder, direction: Int) {
                 val pos = vh.bindingAdapterPosition
                 if (pos !in shown.indices) { refresh(); return }
