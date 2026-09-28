@@ -137,6 +137,12 @@
     <string name="add_replace">Добавить замену</string>
     <string name="save">Сохранить</string>
     <string name="deleted">Удалено</string>
+    <string name="system_disable">Отключить</string>
+    <string name="system_restore">Вернуть</string>
+    <string name="system_disabled">Отключено, строка в списке «Системный удалённые»</string>
+    <string name="system_restored">Возвращено в системный список</string>
+    <string name="system_swipe_help">Строку системного списка можно отключить смахиванием (в TalkBack — действие «Отключить»): она уходит в список «Системный удалённые» и остаётся отключённой после обновлений приложения. Смахивание там возвращает её обратно.</string>
+    <string name="removed_empty_hint">Здесь будут строки, отключённые смахиванием в системном списке. Смахните строку, чтобы вернуть её</string>
     <string name="undo">Отменить</string>
     <string name="delete">Удалить</string>
     <string name="stress_help">Слова, где движок ставит ударение не туда. Действует после словаря модели и выбора по контексту. Ударение, которое зависит от соседних слов, задаётся на вкладке «Замены»: «старый замок = старый з+амок».</string>

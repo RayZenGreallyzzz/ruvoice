@@ -392,7 +392,7 @@ class AuditFragment : PageFragment(R.layout.fragment_audit) {
         val target = view.findViewById<MaterialAutoCompleteTextView>(R.id.target).apply { opensFromKeyboard() }
         val mode = view.findViewById<MaterialButtonToggleGroup>(R.id.mode)
         fun replaceMode() = mode.checkedButtonId == R.id.modeReplace
-        fun lists() = prefs.dictFiles(if (replaceMode()) Dicts.Kind.REPLACE else Dicts.Kind.STRESS).map { Dicts.name(it) }.filter { it != Dicts.SYSTEM }
+        fun lists() = prefs.dictFiles(if (replaceMode()) Dicts.Kind.REPLACE else Dicts.Kind.STRESS).map { Dicts.name(it) }.filter { !Dicts.isSystem(it) }
         fun switchMode() {
             val replace = replaceMode()
             chips.visibility = if (replace) View.GONE else View.VISIBLE
