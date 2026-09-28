@@ -106,6 +106,7 @@ class VoiceFragment : PageFragment(R.layout.fragment_voice) {
         voiceKept = voices.isNotEmpty() && Speaker.resolve(prefs.voice, d, packs) == null
         quoteKept = voices.isNotEmpty() && prefs.quoteVoice.isNotEmpty() && Speaker.resolve(prefs.quoteVoice, d, packs) == null
         voiceView.missing(if (voiceKept) prefs.voice else null, Speaker.label(main))
+        if (!voiceKept) voiceView.bound(main)
         quoteView.missing(if (quoteKept) prefs.quoteVoice else null, quoteView.str())
         var shown = voiceView.str()
         voiceView.setOnItemClickListener { _, _, _, _ ->
@@ -122,7 +123,7 @@ class VoiceFragment : PageFragment(R.layout.fragment_voice) {
                 return@setOnItemClickListener
             }
             shown = voiceView.str()
-            voiceKept = false; voiceView.missing(null, "")
+            voiceKept = false; voiceView.missing(null, ""); picked?.let { voiceView.bound(it) }
             // сменился движок — список прямой речи другой, несовместимый выбор на «как основной»
             val items = quoteItems(nameOf(voiceView.str()) ?: main)
             quoteView.setSimpleItems(items.toTypedArray())
@@ -186,6 +187,15 @@ class VoiceFragment : PageFragment(R.layout.fragment_voice) {
         (p as? TextInputLayout)?.helperText = name?.let { getString(R.string.voice_missing, Speaker.label(it), shown) }
     }
 
+    /** Подпись под голосом: к какому профилю он привязан (Profiles.bind) — выбор такого голоса включает тот профиль. */
+    private fun View.bound(voice: String) {
+        val profiles = Profiles(requireContext())
+        val p = profiles.binds()[voice]?.let { id -> profiles.list().firstOrNull { it.id == id } } ?: return
+        var l = parent
+        while (l != null && l !is TextInputLayout) l = l.parent
+        (l as? TextInputLayout)?.helperText = getString(if (p.id == profiles.active().id) R.string.voice_bound_this else R.string.voice_bound, p.name)
+    }
+
     private fun View.dropdown(id: Int, items: List<String>, value: String) =
         findViewById<MaterialAutoCompleteTextView>(id).apply {
             setSimpleItems(items.toTypedArray())
@@ -202,6 +212,11 @@ class VoiceFragment : PageFragment(R.layout.fragment_voice) {
         fun read(key: String) = "%.2f".format(Locale.ROOT, Settings.Secure.getInt(cr, key, 100) / 100f)
         view?.findViewById<TextView>(R.id.sysValues)?.text =
             getString(R.string.sys_values, read("tts_default_rate"), read("tts_default_pitch"))
+        // привязку могли поменять на вкладке «Профили» — подпись под голосом заново
+        val voiceView = view?.findViewById<TextView>(R.id.voice) ?: return
+        if (voiceKept) return
+        voiceView.missing(null, "")
+        nameOf(voiceView.str())?.let { voiceView.bound(it) }
     }
 
 }
