@@ -164,7 +164,7 @@ class Prefs(private val context: Context) {
 
     fun replacements(): Replacements = DictCache.replacements(enabledDictFiles(Dicts.Kind.REPLACE))
 
-    /** Собирает JSON-файл экспорта настроек (текущие Prefs + все списки ударений и замен). */
+    /** Собирает JSON-файл экспорта настроек (текущие Prefs + все списки ударений и замен + профили). */
     fun exportJson(): String {
         val prefsMap = mapOf(
             "voice" to voice,
@@ -199,16 +199,23 @@ class Prefs(private val context: Context) {
         )
         fun all(kind: Dicts.Kind) = dictFiles(kind).associate { Dicts.name(it) to it.readText() }
         val auditLists = Audit.Kind.values().associate { it.name.lowercase() to audit.text(it) }.filterValues { it.isNotEmpty() }
-        return SettingsJson.build(prefsMap, all(Dicts.Kind.STRESS), all(Dicts.Kind.REPLACE), off(Dicts.Kind.STRESS), off(Dicts.Kind.REPLACE), auditLists)
+        val profiles = Profiles(context)
+        val entries = profiles.snapshot().map { SettingsJson.ProfileEntry(it.name, it.main, it.data) }
+        return SettingsJson.build(prefsMap, all(Dicts.Kind.STRESS), all(Dicts.Kind.REPLACE), off(Dicts.Kind.STRESS), off(Dicts.Kind.REPLACE), auditLists,
+            entries, profiles.active().name)
     }
 
     /**
      * Разбирает JSON-файл экспорта и применяет его: отсутствующие в файле ключи не трогает,
      * неизвестные игнорирует, числа приводит к тем же границам, что и UI (см. SettingsPages).
-     * Списки из файла перезаписывают одноимённые, остальные остаются.
+     * Списки из файла перезаписывают одноимённые, остальные остаются. Профили так же: одноимённые
+     * перезаписываются, прочие остаются, кроме [exact] (отмена импорта) — там список профилей как в файле.
+     * Файл без профилей (старая версия) ложится в активный профиль.
      */
-    fun importJson(text: String) {
+    fun importJson(text: String, exact: Boolean = false) {
         val parsed = SettingsJson.parse(text)
+        // сначала профили: они заполняют prefs снимком активного, ниже поверх — проверенные "prefs" файла (они же)
+        parsed.profiles?.let { Profiles(context).import(it, parsed.activeProfile, exact) }
         val prefsMap = parsed.prefs
         (prefsMap["voice"] as? String)?.let { voice = it }
         // Только 24000/48000 — реальные частоты модели (review final-fix п.10), другое значение

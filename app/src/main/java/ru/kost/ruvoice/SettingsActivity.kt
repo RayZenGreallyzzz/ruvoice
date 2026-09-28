@@ -47,9 +47,12 @@ class SettingsActivity : AppCompatActivity() {
         R.string.tab_stress to { StressFragment() },
         R.string.tab_replace to { ReplaceFragment() },
         R.string.tab_audit to { AuditFragment() },
+        R.string.tab_profiles to { ProfilesFragment() },
     )
     private val prefs by lazy { Prefs(this) }
     private var tts: TextToSpeech? = null
+    /** Профиль сменили не отсюда (плитка в шторке) — поля страниц от прежнего, окно пересоздаётся. */
+    private val profileWatch = ProfileWatch(this) { restartForProfile(getString(R.string.profile_switched, Profiles(this).active().name)) }
 
     private val exportLauncher =
         registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
@@ -127,7 +130,26 @@ class SettingsActivity : AppCompatActivity() {
         // блокирует кадры — один шаг перелетал все страницы, цель успевала уйти в recycle,
         // пейджер вставал на последней вкладке с индикатором на нужной. Свайп не затронут.
         TabLayoutMediator(findViewById<TabLayout>(R.id.tabs), pager, true, false) { tab, i -> tab.setText(pages[i].first) }.attach()
+        if (savedInstanceState == null) intent.getIntExtra(EXTRA_TAB, -1).takeIf { it in pages.indices }?.let { pager.setCurrentItem(it, false) }
+        intent.removeExtra(EXTRA_TAB)
     }
+
+    override fun onResume() { super.onResume(); profileWatch.resume() }
+    override fun onPause() { profileWatch.pause(); super.onPause() }
+
+    /** После смены профиля: prefs другие целиком — окно заново, как после импорта, на той же вкладке. */
+    fun restartForProfile(message: String) {
+        // смену отсюда видит и profileWatch — второе окно не нужно
+        if (isFinishing) return
+        val tab = findViewById<ViewPager2>(R.id.pager).currentItem
+        intent.putExtra(EXTRA_IMPORT_DONE, true)
+        packsDialog?.dismiss()
+        finish()
+        startActivity(Intent(this, SettingsActivity::class.java).putExtra(EXTRA_SNACK, message).putExtra(EXTRA_TAB, tab))
+        overridePendingTransition(0, 0)
+    }
+
+    fun snack(text: String) = showSnackbar(text)
 
     /** «Как включить»: путь к системному экрану синтеза речи и объяснение стандартного
      * предупреждения Android про сторонний движок. Показывается при первом запуске и из меню. */
@@ -143,7 +165,7 @@ class SettingsActivity : AppCompatActivity() {
     /** Сохраняет поля всех сейчас созданных страниц (обычно это видимая и её соседи по
      * ViewPager2) — вызывается перед экспортом, чтобы в файл попали правки текущей вкладки,
      * которые иначе сохранились бы только в onPause при уходе со страницы. */
-    private fun saveAllVisiblePages() {
+    fun saveAllVisiblePages() {
         supportFragmentManager.fragments.forEach { (it as? PageFragment)?.saveNow() }
     }
 
@@ -210,7 +232,7 @@ class SettingsActivity : AppCompatActivity() {
                 try {
                     val keep = dicts.readText().lines().toSet()
                     dictPaths().filter { it !in keep }.forEach { File(it).delete() }
-                    prefs.importJson(json.readText())
+                    prefs.importJson(json.readText(), exact = true)
                     json.delete(); dicts.delete()
                     restartAfterImport(Intent().putExtra(EXTRA_SNACK, getString(R.string.import_undone)))
                 } catch (e: Exception) {
@@ -421,6 +443,9 @@ class SettingsActivity : AppCompatActivity() {
         internal const val EXTRA_IMPORT_DONE = "import_done"
         internal const val EXTRA_SNACK = "snack"
         internal const val EXTRA_SHOW_PACKS = "show_packs"
+        internal const val EXTRA_TAB = "tab"
+        /** Номер вкладки «Профили» в pages — для плитки в шторке. */
+        internal const val TAB_PROFILES = 5
     }
 }
 
