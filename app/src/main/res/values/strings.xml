@@ -455,7 +455,7 @@
     <!-- Профили настроек (Profiles, ProfilesFragment, ProfileTileService) -->
     <string name="profile_main">Основной</string>
     <string name="section_profiles">Профили настроек</string>
-    <string name="section_profiles_hint">Профиль помнит все настройки: голос, темп, громкость, паузы, правила, какие словари включены. Правки на вкладках и в меню «Настройки» идут в выбранный профиль. Сами словари общие для всех профилей. Переключать профиль можно и плиткой «Профиль RuVoice» в шторке. «Основной» не удаляется.</string>
+    <string name="section_profiles_hint">Профиль помнит все настройки: голос, темп, громкость, паузы, правила, какие словари включены. Правки на вкладках и в меню «Настройки» идут в выбранный профиль. Сами словари общие для всех профилей. Переключать профиль можно и плиткой «Профиль RuVoice» в шторке. Профиль, привязанный к голосу, включается сам, когда этот голос выбирают в читалке или на вкладке «Голос». «Основной» не удаляется.</string>
     <string name="profile_add">Добавить профиль…</string>
     <string name="profile_add_title">Новый профиль</string>
     <string name="profile_add_hint">Новый профиль — копия текущих настроек, он сразу становится выбранным.</string>
@@ -469,6 +469,18 @@
     <string name="profile_name_taken">Профиль с таким именем уже есть</string>
     <string name="profile_switched">Включён профиль «%1$s»</string>
     <string name="profile_deleted">Профиль удалён</string>
+    <string name="profile_bind">Привязать к голосу…</string>
+    <string name="profile_bind_named">Привязать к голосу профиль «%1$s»</string>
+    <string name="profile_bound">Привязан к голосу %1$s</string>
+    <string name="profile_bound_named">Привязан к голосу %2$s, профиль «%1$s»</string>
+    <string name="profile_radio_bound">%1$s, привязан к голосу %2$s</string>
+    <string name="profile_bound_done">Профиль «%1$s» привязан к голосу %2$s</string>
+    <string name="profile_unbound">Профиль «%1$s» больше не привязан к голосу</string>
+    <string name="profile_bind_title">Привязать «%1$s» к голосу</string>
+    <string name="profile_bind_none">Не привязан</string>
+    <string name="profile_bind_taken">%1$s, сейчас у профиля «%2$s»</string>
+    <string name="profile_bind_missing">%1$s, нет на телефоне</string>
+    <string name="profile_bind_no_voices">Голосов пока нет: установите пакет голосов.</string>
     <string name="tile_label">Профиль RuVoice</string>
     <string name="tile_pick">Профиль RuVoice</string>
 </resources>

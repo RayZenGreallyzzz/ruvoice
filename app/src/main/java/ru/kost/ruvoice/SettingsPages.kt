@@ -107,7 +107,21 @@ class VoiceFragment : PageFragment(R.layout.fragment_voice) {
         quoteKept = voices.isNotEmpty() && prefs.quoteVoice.isNotEmpty() && Speaker.resolve(prefs.quoteVoice, d, packs) == null
         voiceView.missing(if (voiceKept) prefs.voice else null, Speaker.label(main))
         quoteView.missing(if (quoteKept) prefs.quoteVoice else null, quoteView.str())
+        var shown = voiceView.str()
         voiceView.setOnItemClickListener { _, _, _, _ ->
+            val picked = nameOf(voiceView.str())
+            val bound = picked?.let { Profiles(requireContext()).boundOther(it) }
+            if (bound != null) {
+                // голос привязан к другому профилю — включается тот, с этим голосом; у этого голос прежний
+                voiceView.setText(shown, false)
+                val host = activity as SettingsActivity
+                host.saveAllVisiblePages()
+                Profiles(requireContext()).switchTo(bound.id)
+                prefs.voice = picked
+                host.restartForProfile(getString(R.string.profile_switched, bound.name))
+                return@setOnItemClickListener
+            }
+            shown = voiceView.str()
             voiceKept = false; voiceView.missing(null, "")
             // сменился движок — список прямой речи другой, несовместимый выбор на «как основной»
             val items = quoteItems(nameOf(voiceView.str()) ?: main)

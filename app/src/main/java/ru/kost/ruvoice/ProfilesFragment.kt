@@ -37,10 +37,14 @@ class ProfilesFragment : Fragment(R.layout.fragment_profiles) {
         val list = view.findViewById<RadioGroup>(R.id.profilesList)
         list.removeAllViews()
         val active = profiles.active().id
+        val binds = profiles.binds()
         for (p in profiles.list()) {
             val row = layoutInflater.inflate(R.layout.item_profile, list, false)
+            val voice = binds.entries.firstOrNull { it.value == p.id }?.key
             row.findViewById<RadioButton>(R.id.profileName).apply {
                 text = p.name
+                // TalkBack на выборе профиля сразу слышит и привязку
+                contentDescription = voice?.let { getString(R.string.profile_radio_bound, p.name, Speaker.label(it)) }
                 isChecked = p.id == active
                 setOnClickListener {
                     if (p.id == profiles.active().id) return@setOnClickListener
@@ -55,6 +59,13 @@ class ProfilesFragment : Fragment(R.layout.fragment_profiles) {
                 setOnClickListener {
                     nameDialog(R.string.profile_rename_title, p.name, p.id, null) { name -> profiles.rename(p.id, name); fill(view) }
                 }
+            }
+            // TalkBack: имя профиля в подписи, как у «Переименовать»; видимый текст входит в неё (Voice Access)
+            row.findViewById<Button>(R.id.profileBind).apply {
+                text = voice?.let { getString(R.string.profile_bound, Speaker.label(it)) } ?: getString(R.string.profile_bind)
+                contentDescription = voice?.let { getString(R.string.profile_bound_named, p.name, Speaker.label(it)) }
+                    ?: getString(R.string.profile_bind_named, p.name)
+                setOnClickListener { bindDialog(p, voice) { fill(view) } }
             }
             row.findViewById<Button>(R.id.profileDelete).apply {
                 visibility = if (p.main) View.GONE else View.VISIBLE
@@ -78,6 +89,36 @@ class ProfilesFragment : Fragment(R.layout.fragment_profiles) {
             }
             list.addView(row)
         }
+    }
+
+    /** «Привязать к голосу»: «Не привязан» и голоса; голос другого профиля подписан, выбор забирает его себе. */
+    private fun bindDialog(p: Profiles.Profile, current: String?, done: () -> Unit) {
+        val ctx = requireContext()
+        val installed = Speaker.names(SileroModels.speakers(ctx), Packs.installed(ctx.filesDir))
+        // привязан голос удалённого пака — остаётся в списке, помеченный
+        val voices = if (current != null && current !in installed) installed + current else installed
+        if (voices.isEmpty()) { host.snack(getString(R.string.profile_bind_no_voices)); return }
+        val binds = profiles.binds()
+        val names = profiles.list().associate { it.id to it.name }
+        val labels = listOf(getString(R.string.profile_bind_none)) + voices.map { v ->
+            val owner = binds[v]?.takeIf { it != p.id }?.let { names[it] }
+            when {
+                owner != null -> getString(R.string.profile_bind_taken, Speaker.label(v), owner)
+                v !in installed -> getString(R.string.profile_bind_missing, Speaker.label(v))
+                else -> Speaker.label(v)
+            }
+        }
+        var picked = current?.let { voices.indexOf(it) + 1 } ?: 0
+        MaterialAlertDialogBuilder(ctx).setTitle(getString(R.string.profile_bind_title, p.name))
+            .setSingleChoiceItems(labels.toTypedArray(), picked) { _, i -> picked = i }
+            .setPositiveButton(R.string.save) { _, _ ->
+                val v = if (picked == 0) null else voices[picked - 1]
+                if (v == current) return@setPositiveButton
+                profiles.bind(p.id, v); done()
+                // строки пересобраны, фокус TalkBack с кнопки ушёл — итог словами
+                host.snack(v?.let { getString(R.string.profile_bound_done, p.name, Speaker.label(it)) } ?: getString(R.string.profile_unbound, p.name))
+            }
+            .setNegativeButton(R.string.cancel, null).show()
     }
 
     /** Имя профиля: непустое и не занятое другим профилем (без учёта регистра). */

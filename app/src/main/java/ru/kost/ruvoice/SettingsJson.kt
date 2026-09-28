@@ -9,7 +9,8 @@ import org.json.JSONObject
  * Формат v2: {"app":"ruvoice","version":2,"prefs":{...},"stress":{"имя":"текст",…},
  * "replace":{"имя":"текст",…},"stress_off":["имя",…],"replace_off":[…],
  * "audit":{"names":"текст файла"}} — список вкладки «Проверка» вместе со скрытыми (см. Audit); прочие ключи (старый "unsure") пропускаются.
- * "profiles":{"active":"имя","list":[{"name":"Основной","main":true,"prefs":{снимок ProfileData}},…]} — профили (Profiles);
+ * "profiles":{"active":"имя","list":[{"name":"Основной","main":true,"prefs":{снимок ProfileData},"voice_bind":"голос"},…]} — профили (Profiles),
+ * "voice_bind" — только у привязанного к голосу;
  * "prefs" — по-прежнему настройки активного профиля: старая версия приложения прочтёт их и пропустит профили,
  * а файл старой версии без "profiles" ложится в активный профиль.
  * В v1 stress/replace были строками одного файла — при разборе они становятся списком «Основной».
@@ -25,7 +26,8 @@ object SettingsJson {
                       val stressOff: Set<String>?, val replaceOff: Set<String>?, val audit: Map<String, String>? = null,
                       val profiles: List<ProfileEntry>? = null, val activeProfile: String? = null)
 
-    class ProfileEntry(val name: String, val main: Boolean, val prefs: Map<String, Any>)
+    /** [voice] — голос, к которому привязан профиль (Profiles.bind), null — не привязан. */
+    class ProfileEntry(val name: String, val main: Boolean, val prefs: Map<String, Any>, val voice: String? = null)
 
     fun build(prefsMap: Map<String, Any>, stress: Map<String, String>, replace: Map<String, String>,
               stressOff: Set<String>, replaceOff: Set<String>, audit: Map<String, String> = emptyMap(),
@@ -42,7 +44,8 @@ object SettingsJson {
         root.put("replace_off", JSONArray(replaceOff))
         if (audit.isNotEmpty()) root.put("audit", JSONObject(audit))
         if (profiles.isNotEmpty()) root.put("profiles", JSONObject().put("active", activeProfile).put("list", JSONArray().also { arr ->
-            profiles.forEach { arr.put(JSONObject().put("name", it.name).put("main", it.main).put("prefs", ProfileData.encode(it.prefs))) }
+            profiles.forEach { arr.put(JSONObject().put("name", it.name).put("main", it.main).put("prefs", ProfileData.encode(it.prefs))
+                .apply { it.voice?.let { v -> put("voice_bind", v) } }) }
         }))
         return root.toString(2)
     }
@@ -64,7 +67,8 @@ object SettingsJson {
         val prof = root.optJSONObject("profiles")
         val list = prof?.optJSONArray("list")?.let { arr ->
             (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }.filter { it.optString("name").isNotBlank() }.map {
-                ProfileEntry(it.optString("name"), it.optBoolean("main"), ProfileData.decode(it.optJSONObject("prefs") ?: JSONObject()))
+                ProfileEntry(it.optString("name"), it.optBoolean("main"), ProfileData.decode(it.optJSONObject("prefs") ?: JSONObject()),
+                    it.optString("voice_bind").takeIf { v -> v.isNotEmpty() })
             }
         }?.takeIf { it.isNotEmpty() }
         return Parsed(prefs, dicts(root, "stress"), dicts(root, "replace"), names(root, "stress_off"), names(root, "replace_off"), dicts(root, "audit"),

@@ -17,6 +17,10 @@ import org.json.JSONObject
  * Хранилище — prefs «ruvoice_profiles»: список JSON, id активного и счётчик переключений [gen]. Пустое
  * хранилище (первый запуск после обновления со старой версии) — один профиль «Основной» из текущих
  * настроек, prefs не меняются.
+ *
+ * Привязка к голосу ([bind]): голос → профиль, у голоса не больше одного профиля. Читалка сменила голос
+ * запроса на привязанный ([followVoice]) или голос выбрали на вкладке «Голос» — включается его профиль.
+ * Хранится отдельно от списка («binds»), чтобы сервис на каждой фразе не разбирал все снимки.
  */
 class Profiles(private val context: Context) {
     class Profile(val id: String, val name: String, val data: Map<String, Any>) {
@@ -41,6 +45,39 @@ class Profiles(private val context: Context) {
         notifyTile(); p
     }
 
+    /** Голос → id профиля. */
+    fun binds(): Map<String, String> = synchronized(LOCK) { readBinds() }
+    fun boundVoice(id: String): String? = binds().entries.firstOrNull { it.value == id }?.key
+    /** Профиль, привязанный к голосу [voice], если он есть и это не активный. */
+    fun boundOther(voice: String): Profile? = synchronized(LOCK) {
+        val id = readBinds()[voice]?.takeIf { it != activeId() } ?: return@synchronized null
+        read().firstOrNull { it.id == id }
+    }
+
+    /** Привязать профиль [id] к голосу [voice] (null — отвязать). Голос, привязанный к другому профилю,
+     * переходит к этому; прежняя привязка этого профиля снимается. */
+    fun bind(id: String, voice: String?) = synchronized(LOCK) {
+        writeBinds(readBinds().filter { it.value != id && it.key != voice } + listOfNotNull(voice?.let { it to id }))
+    }
+
+    /**
+     * Запрос читалки [caller] пришёл голосом [voice]: если голос у этой читалки сменился и к нему привязан
+     * профиль — включить профиль, голос в prefs — этот. Сравнение с прошлым голосом той же читалки, а не
+     * с prefs: читалка шлёт голос, запомненный при подключении, и после ручной смены профиля (плитка)
+     * прежний голос в её запросах назад не переключает. Первый запрос читалки сравнивается с голосом из prefs.
+     * Вернёт включённый профиль или null.
+     */
+    fun followVoice(caller: String, voice: String): Profile? = synchronized(LOCK) {
+        val key = "seen_voice_$caller"
+        val last = store.getString(key, null) ?: live.getString("voice", null)
+        if (last == voice) return@synchronized null
+        store.edit().putString(key, voice).commit()
+        val target = boundOther(voice) ?: return@synchronized null
+        switchTo(target.id)
+        live.edit().putString("voice", voice).commit()
+        target
+    }
+
     fun rename(id: String, name: String) = synchronized(LOCK) {
         write(read().map { if (it.id == id) Profile(it.id, name.trim(), it.data) else it }, activeId()); notifyTile()
     }
@@ -49,7 +86,7 @@ class Profiles(private val context: Context) {
     fun delete(id: String) = synchronized(LOCK) {
         if (id == MAIN) return@synchronized
         if (id == activeId()) switchTo(MAIN)
-        write(read().filter { it.id != id }, activeId()); notifyTile()
+        write(read().filter { it.id != id }, activeId()); bind(id, null); notifyTile()
     }
 
     fun switchTo(id: String) = synchronized(LOCK) {
@@ -81,13 +118,19 @@ class Profiles(private val context: Context) {
         var list = read().map { if (it.id == cur) Profile(it.id, it.name, capture()) else it }
         if (exact) list = list.filter { p -> p.main || entries.any { !it.main && it.name.equals(p.name, ignoreCase = true) } }
         var n = 0
+        // привязки: у профилей из файла — как в файле, у прочих остаются (при [exact] прочих нет)
+        var binds = readBinds().filterValues { id -> list.any { it.id == id } }
         for (e in entries) {
             val name = e.name.trim()
             if (name.isEmpty()) continue
             val i = list.indexOfFirst { if (e.main) it.main else !it.main && it.name.equals(name, ignoreCase = true) }
-            list = if (i >= 0) list.toMutableList().also { it[i] = Profile(it[i].id, name, e.prefs) }
-                else list + Profile("p" + System.currentTimeMillis().toString(36) + (n++), name, e.prefs)
+            val id = if (i >= 0) list[i].id else "p" + System.currentTimeMillis().toString(36) + (n++)
+            list = if (i >= 0) list.toMutableList().also { it[i] = Profile(id, name, e.prefs) }
+                else list + Profile(id, name, e.prefs)
+            binds = binds.filterValues { it != id }
+            e.voice?.takeIf { it.isNotEmpty() }?.let { v -> binds = binds - v + (v to id) }
         }
+        writeBinds(binds)
         // одноимённые после импорта (файл назвал «Основным» другой профиль) — второму номер
         val seen = HashSet<String>()
         list = list.map { p -> var nm = p.name; var k = 2; while (!seen.add(nm.lowercase())) nm = "${p.name} ${k++}"; Profile(p.id, nm, p.data) }
@@ -121,6 +164,15 @@ class Profiles(private val context: Context) {
         list.forEach { arr.put(JSONObject().put("id", it.id).put("name", it.name).put("prefs", ProfileData.encode(it.data))) }
         val gen = if (active != activeId()) store.getInt("gen", 0) + 1 else store.getInt("gen", 0)
         store.edit().putString("list", arr.toString()).putString("active", active).putInt("gen", gen).commit()
+    }
+
+    private fun readBinds(): Map<String, String> = runCatching {
+        val o = JSONObject(store.getString("binds", null) ?: return emptyMap())
+        o.keys().asSequence().associateWith { o.getString(it) }
+    }.getOrDefault(emptyMap())
+
+    private fun writeBinds(binds: Map<String, String>) {
+        store.edit().putString("binds", JSONObject(binds).toString()).commit()
     }
 
     private fun capture(): Map<String, Any> = live.all.filterKeys(ProfileData::isProfileKey).mapNotNull { (k, v) -> v?.let { k to it } }.toMap()
