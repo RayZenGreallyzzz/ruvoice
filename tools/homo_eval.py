@@ -19,6 +19,9 @@ gram, homo, phrases = d['gram'], d['homodict'], d['phrases']
 fixes = sf.load_fixes(); morph = Table()
 for w, items in pe.load_extra().items(): phrases[w] = sorted(items + [tuple(x) for x in phrases.get(w, [])], key=lambda x: -len(x[0]))  # системный словарь
 ss = load_accentor()
+if not os.environ.get('ORIG_HOMO'):   # как в аппке: homo.ptl из ассетов (ветки); HOMO=путь — другая модель; ORIG_HOMO=1 — пакетная
+    from torch.jit.mobile import _load_for_lite_interpreter
+    ss.homosolver.model = _load_for_lite_interpreter(os.environ.get('HOMO') or os.path.join(ROOT, 'app/src/main/assets/silero/homo.ptl'))
 word_re = re.compile(r'[а-яё+-]+', re.I)
 
 
