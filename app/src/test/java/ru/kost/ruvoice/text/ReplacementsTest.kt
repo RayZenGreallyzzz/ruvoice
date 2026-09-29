@@ -22,6 +22,18 @@ class ReplacementsTest {
         assertEquals("Что что, а драться он умел. Кто кто, а он знал. Кое-что, а чуть-чуть и что-то.", r.apply("Что-что, а драться он умел. Кто-кто, а он знал. Кое-что, а чуть-чуть и что-то."))
     }
 
+    /** Отчёт пользователя 29.09.2026: фразы и первые части сложных слов из системного словаря замен. */
+    @Test fun systemUserReportPhrases() {
+        val r = Replacements.parse(java.io.File(TestData.root(), "app/src/main/assets/dicts/replace/Системный.txt").readLines())
+        assertEquals("можно и ед+у из других", r.apply("можно и еду из других"))
+        assertEquals("+еду из города", r.apply("еду из города"))
+        assertEquals("глаза заливало п+отом.", r.apply("глаза заливало потом."))
+        assertEquals("на моём берег+у", r.apply("на моём берегу"))
+        assertEquals("всё съ+ем", r.apply("всё съем"))
+        assertEquals("б+ело-голубая", r.apply("бело-голубая"))
+        assertEquals("св+етло-серый", r.apply("светло-серый"))
+    }
+
     @Test fun phraseWithStressOnNeighbourWord() {
         val r = Replacements.parse(listOf("старый замок = старый з+амок"))
         assertEquals("Старый з+амок стоял.", r.apply("Старый замок стоял."))
