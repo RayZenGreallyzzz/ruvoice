@@ -35,7 +35,7 @@ PASSIVE_PL = re.compile(r'[а-яё]+(нн|т|м)ые$')
 
 
 LOC_PREP = {'в', 'во', 'на', 'при'}
-PART_GOV = set('половина половину половины половиной часть части частью масса массу массы массой'.split())   # «половину +озера»
+MASS_GOV = set('масса массу массы массой'.split())   # «масса вод+ы которой», как PART_GOV
 TOUCH_VERB = re.compile(r'(при)?(косн|каса)[а-яё]*$')   # «коснись жел+еза»: только родительный
 SIZE = set('размером высотой ростом величиной длиной шириной толщиной весом'.split())
 PARTICIPLE = ('вшего', 'ющего', 'ущего', 'ащего', 'ящего')
@@ -139,7 +139,7 @@ def gram_pick(prev, prev2, e, in_homo=False, w=None, morph=None, prev3=None, pre
     if prev in GEN: return e.get('g') or e.get('n')
     if prev in PART_GOV: return e.get('g')
     if prev in QUANT_GOV: return None if prev2 == 'не' and prev in ('столько', 'сколько') else e.get('g')
-    if prev in PART_GOV or TOUCH_VERB.match(prev): return e.get('g')
+    if prev in MASS_GOV or TOUCH_VERB.match(prev): return e.get('g')
     if 'l' in e and e['l'] != e.get('g'): return loc2_pick(prev, prev2, prev3, e, w, morph)
     if prev in LOC_PREP and 'l' in e: return e['l']
     if prev in ('в', 'во') and 'g' in e and 'p' not in e: return None
