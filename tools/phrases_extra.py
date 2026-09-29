@@ -21,6 +21,8 @@ GEN = set('с со из изо от ото у до без безо для око
           'подле близ накануне вне насчёт насчет ввиду вследствие позади впереди посреди сверх свыше внутри внутрь вроде '
           'два две три четыре полтора полторы нет'.split())
 QUANT_GOV = set('мало много немного немало больше меньше достаточно сколько столько полно'.split())   # только g, «он много сопел» глагол
+PART_GOV = set('половина половину половины половине половиной треть трети третью четверть четверти четвертью часть частью '
+                 'середина середину середины середине серединой'.split())   # доля целого: «половину оз+ера»
 PREP = set('в во на за под подо через про сквозь о об обо по при к ко над надо перед передо между меж'.split())
 PRON = set('я ты он она оно мы вы они'.split())
 COUNT = set('два две три четыре оба обе полтора полторы'.split())
@@ -135,6 +137,7 @@ def gram_pick(prev, prev2, e, in_homo=False, w=None, morph=None, prev3=None, pre
     if prev == 'за' and prev2 == 'что': return None
     if prev == 'с' and prev2 in SIZE: return e.get('p')
     if prev in GEN: return e.get('g') or e.get('n')
+    if prev in PART_GOV: return e.get('g')
     if prev in QUANT_GOV: return None if prev2 == 'не' and prev in ('столько', 'сколько') else e.get('g')
     if prev in PART_GOV or TOUCH_VERB.match(prev): return e.get('g')
     if 'l' in e and e['l'] != e.get('g'): return loc2_pick(prev, prev2, prev3, e, w, morph)
