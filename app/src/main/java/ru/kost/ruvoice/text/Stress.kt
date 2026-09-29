@@ -207,7 +207,9 @@ class Stress(private val d: SileroData, private val models: StressModels, privat
                     prev in genGov -> e["g"] ?: e["n"]
                     prev in partGov -> e["g"]
                     prev in quantGov -> if (prev2 == "не" && (prev == "столько" || prev == "сколько")) null else e["g"]   // «не столько слов+а, сколько…»
-                    prev in massGov || touchVerb.matches(prev) -> e["g"]
+                    prev in massGov -> e["g"]
+                    // «которой касались р+уки»: дополнение — «которой», слово за глаголом подлежащее
+                    touchVerb.matches(prev) -> if (prev2.startsWith("котор")) null else e["g"]
                     "l" in e && e["l"] != e["g"] -> loc2Pick(prev, prev2, prev3, e, w)      // «в кров+и» / «ана́лиз кр+ови»
                     prev in locPrep && "l" in e -> e["l"]                                  // «в глуш+и» — второй предложный
                     (prev == "в" || prev == "во") && "g" in e && "p" !in e -> null         // «выйти в учителя» — им. мн.

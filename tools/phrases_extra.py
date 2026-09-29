@@ -139,7 +139,8 @@ def gram_pick(prev, prev2, e, in_homo=False, w=None, morph=None, prev3=None, pre
     if prev in GEN: return e.get('g') or e.get('n')
     if prev in PART_GOV: return e.get('g')
     if prev in QUANT_GOV: return None if prev2 == 'не' and prev in ('столько', 'сколько') else e.get('g')
-    if prev in MASS_GOV or TOUCH_VERB.match(prev): return e.get('g')
+    if prev in MASS_GOV: return e.get('g')
+    if TOUCH_VERB.match(prev): return None if prev2.startswith('котор') else e.get('g')   # «которой касались р+уки»
     if 'l' in e and e['l'] != e.get('g'): return loc2_pick(prev, prev2, prev3, e, w, morph)
     if prev in LOC_PREP and 'l' in e: return e['l']
     if prev in ('в', 'во') and 'g' in e and 'p' not in e: return None
