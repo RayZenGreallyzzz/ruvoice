@@ -79,7 +79,8 @@ class AccessibilityChecksTest {
                 assertKeyboardReachable()
             }
             // «Изменения сохраняются автоматически» под выбранным профилем: видна и доступна TalkBack
-            onView(withText(R.string.profile_autosave)).check { v, _ ->
+            // (строка есть в каждой карточке, у невыбранных GONE — ищем единственную видимую)
+            onView(allOf(withText(R.string.profile_autosave), isDisplayed())).check { v, _ ->
                 assertTrue("строка скрыта", v.isShown)
                 assertTrue("TalkBack её пропустит", v.isImportantForAccessibility)
                 assertEquals(ctx.getString(R.string.profile_autosave), v.createAccessibilityNodeInfo().text?.toString())
