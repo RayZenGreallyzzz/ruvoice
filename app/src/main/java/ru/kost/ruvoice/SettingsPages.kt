@@ -76,7 +76,21 @@ internal fun View.rateSlider(sliderId: Int, valueId: Int, raw: Float, label: Str
     }
 }
 
-/** Голос, частота, прямая речь и проверка (прослушать/разбор). */
+/** Подпись под полем (TextInputLayout.helperText) у поля-выпадашки; null — убрать. */
+private fun View.helper(text: CharSequence?) {
+    var p = parent
+    while (p != null && p !is TextInputLayout) p = p.parent
+    (p as? TextInputLayout)?.helperText = text
+}
+
+private fun View.dropdown(id: Int, items: List<String>, value: String) =
+    findViewById<MaterialAutoCompleteTextView>(id).apply {
+        setSimpleItems(items.toTypedArray())
+        setText(value, false)
+        opensFromKeyboard()
+    }
+
+/** Голос, частота и проверка (прослушать/разбор). Прямая речь — в «Настройках» (RulesFragment, в самом низу). */
 class VoiceFragment : PageFragment(R.layout.fragment_voice) {
     private val rates = listOf(48000, 24000)
     private val d by lazy { SileroModels.data(requireContext()) }
@@ -84,30 +98,20 @@ class VoiceFragment : PageFragment(R.layout.fragment_voice) {
     // Список голосов из модели и установленных паков (Speaker.names), в списке подписи Speaker.label.
     private val voices by lazy { Speaker.names(d, packs) }
     private fun nameOf(label: String) = voices.firstOrNull { Speaker.label(it) == label }
-    /** Голоса прямой речи — того же движка, что основной: «как основной» + Speaker.sameEngine. */
-    private fun quoteItems(main: String): List<String> {
-        val s = Speaker.resolve(main, d, packs) ?: Speaker.default(d, packs) ?: return listOf(getString(R.string.quote_voice_default))
-        return listOf(getString(R.string.quote_voice_default)) + Speaker.sameEngine(s, d, packs).map { Speaker.label(it) }
-    }
     private val rateItems by lazy { rates.map { getString(R.string.sample_rate_item, it) } }
     /** Голоса из prefs нет на телефоне (профиль или файл с другого телефона, пак удалили): в выпадашке —
      * тот, которым сейчас читается, но в prefs он не пишется, пока голос не выберут сами, — вернули пак,
      * и профиль снова читает своим голосом. */
     private var voiceKept = false
-    private var quoteKept = false
 
     override fun load(v: View) {
         // lite без пака: голосов нет — пустые выпадашки, кнопки ниже ничего не делают.
         // Через Speaker.resolve: в lite голое «aidar» из старых prefs — это «ru/aidar» из voices.
         val main = Speaker.resolve(prefs.voice, d, packs)?.name ?: Speaker.default(d, packs)?.name ?: ""
         val voiceView = v.dropdown(R.id.voice, voices.map { Speaker.label(it) }, Speaker.label(main))
-        val quote = Speaker.resolve(prefs.quoteVoice, d, packs)?.name?.let(Speaker::label)?.takeIf { it in quoteItems(main) }
-        val quoteView = v.dropdown(R.id.quoteVoice, quoteItems(main), quote ?: quoteItems(main).first())
         voiceKept = voices.isNotEmpty() && Speaker.resolve(prefs.voice, d, packs) == null
-        quoteKept = voices.isNotEmpty() && prefs.quoteVoice.isNotEmpty() && Speaker.resolve(prefs.quoteVoice, d, packs) == null
         voiceView.missing(if (voiceKept) prefs.voice else null, Speaker.label(main))
         if (!voiceKept) voiceView.bound(main)
-        quoteView.missing(if (quoteKept) prefs.quoteVoice else null, quoteView.str())
         var shown = voiceView.str()
         voiceView.setOnItemClickListener { _, _, _, _ ->
             val picked = nameOf(voiceView.str())
@@ -123,26 +127,14 @@ class VoiceFragment : PageFragment(R.layout.fragment_voice) {
                 return@setOnItemClickListener
             }
             shown = voiceView.str()
+            // голос прямой речи другого движка не трогаем: сервис читает реплики основным (takeIf по паку),
+            // вернули движок — прямая речь снова своим голосом
             voiceKept = false; voiceView.missing(null, ""); picked?.let { voiceView.bound(it) }
-            // сменился движок — список прямой речи другой, несовместимый выбор на «как основной»
-            val items = quoteItems(nameOf(voiceView.str()) ?: main)
-            quoteView.setSimpleItems(items.toTypedArray())
-            if (quoteView.str() !in items) { quoteView.setText(items.first(), false); quoteKept = false; quoteView.missing(null, "") }
         }
-        quoteView.setOnItemClickListener { _, _, _, _ -> quoteKept = false; quoteView.missing(null, "") }
         v.dropdown(R.id.sampleRate, rateItems, rateItems[rates.indexOf(prefs.sampleRate).coerceAtLeast(0)])
         v.rateSlider(R.id.rate, R.id.rateValue, prefs.rate, getString(R.string.quote_rate))
         v.rateSlider(R.id.pitch, R.id.pitchValue, prefs.pitch, getString(R.string.quote_pitch))
         v.rateSlider(R.id.volume, R.id.volumeValue, prefs.volume, getString(R.string.volume), to = 3f)
-        v.rateSlider(R.id.quoteRate, R.id.quoteRateValue, prefs.quoteRate, getString(R.string.quote_rate_a11y))
-        v.rateSlider(R.id.quotePitch, R.id.quotePitchValue, prefs.quotePitch, getString(R.string.quote_pitch_a11y))
-        // Настройки прямой речи видны только при включённом распознавании.
-        val quoteGroup = v.findViewById<View>(R.id.quoteGroup)
-        v.findViewById<MaterialSwitch>(R.id.quoteOn).apply {
-            isChecked = prefs.quoteOn
-            quoteGroup.visibility = if (isChecked) View.VISIBLE else View.GONE
-            setOnCheckedChangeListener { _, on -> quoteGroup.visibility = if (on) View.VISIBLE else View.GONE }
-        }
         v.findViewById<Button>(R.id.sysTtsSettings).setOnClickListener { requireContext().openSysTtsSettings(v) }
         v.findViewById<TextView>(R.id.setupHelp).apply {
             paintFlags = paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG // иначе сливается с подписями ниже
@@ -166,42 +158,24 @@ class VoiceFragment : PageFragment(R.layout.fragment_voice) {
     override fun save(v: View) {
         val main = nameOf(v.findViewById<TextView>(R.id.voice).str()) ?: prefs.voice
         if (main in voices && !voiceKept) prefs.voice = main
-        // без голосов (lite до пака) выпадашка пустая — не затирать голос прямой речи из prefs
-        if (voices.isNotEmpty() && !quoteKept) prefs.quoteVoice = nameOf(v.findViewById<TextView>(R.id.quoteVoice).str())?.takeIf { Speaker.label(it) in quoteItems(main) } ?: ""
         rateItems.indexOf(v.findViewById<TextView>(R.id.sampleRate).str()).let { if (it >= 0) prefs.sampleRate = rates[it] }
         prefs.rate = v.findViewById<Slider>(R.id.rate).value
         prefs.pitch = v.findViewById<Slider>(R.id.pitch).value
         prefs.volume = v.findViewById<Slider>(R.id.volume).value
-        prefs.quoteRate = v.findViewById<Slider>(R.id.quoteRate).value
-        prefs.quotePitch = v.findViewById<Slider>(R.id.quotePitch).value
-        prefs.quoteOn = v.findViewById<MaterialSwitch>(R.id.quoteOn).isChecked
         prefs.previewText = v.findViewById<EditText>(R.id.previewText).str()
     }
 
     private fun TextView.str() = text.toString()
 
     /** Подпись под выпадашкой: голоса [name] нет на телефоне, читает [shown]; null — убрать подпись. */
-    private fun View.missing(name: String?, shown: String) {
-        var p = parent
-        while (p != null && p !is TextInputLayout) p = p.parent
-        (p as? TextInputLayout)?.helperText = name?.let { getString(R.string.voice_missing, Speaker.label(it), shown) }
-    }
+    private fun View.missing(name: String?, shown: String) = helper(name?.let { getString(R.string.voice_missing, Speaker.label(it), shown) })
 
     /** Подпись под голосом: к какому профилю он привязан (Profiles.bind) — выбор такого голоса включает тот профиль. */
     private fun View.bound(voice: String) {
         val profiles = Profiles(requireContext())
         val p = profiles.binds()[voice]?.let { id -> profiles.list().firstOrNull { it.id == id } } ?: return
-        var l = parent
-        while (l != null && l !is TextInputLayout) l = l.parent
-        (l as? TextInputLayout)?.helperText = getString(if (p.id == profiles.active().id) R.string.voice_bound_this else R.string.voice_bound, p.name)
+        helper(getString(if (p.id == profiles.active().id) R.string.voice_bound_this else R.string.voice_bound, p.name))
     }
-
-    private fun View.dropdown(id: Int, items: List<String>, value: String) =
-        findViewById<MaterialAutoCompleteTextView>(id).apply {
-            setSimpleItems(items.toTypedArray())
-            setText(value, false)
-            opensFromKeyboard()
-        }
 
     // Системные темп/высота (Settings.Secure, 100 = ×1) — только показать: запись требует
     // WRITE_SECURE_SETTINGS, которое обычному приложению не выдают. Обновляем при возврате
@@ -359,10 +333,64 @@ class RulesFragment : PageFragment(R.layout.fragment_rules) {
         for (id in listOf(R.id.chunkBlock, R.id.rulesHint, R.id.rulesFilterBox)) v.findViewById<View>(id).visibility = if (english) View.GONE else View.VISIBLE
         v.findViewById<EditText>(R.id.maxLen).setText(prefs.maxLen.toString())
         v.findViewById<EditText>(R.id.srMaxLen).setText(prefs.srMaxLen.toString())
+        v.findViewById<View>(R.id.quoteBlock).visibility = if (english) View.GONE else View.VISIBLE
+        if (!english) {
+            loadQuote(v)
+            // в поиске — своя секция: заголовок с подписью и сами настройки
+            group++
+            entries += Entry(v.findViewById(R.id.quoteHead), getString(R.string.section_quote), group, true)
+            entries += Entry(v.findViewById(R.id.quoteBody), listOf(R.string.section_quote_hint, R.string.quote_on, R.string.quote_voice,
+                R.string.quote_rate_a11y, R.string.quote_pitch_a11y).joinToString(" ") { getString(it) }, group, false)
+        }
         v.findViewById<EditText>(R.id.rulesFilter).apply {
             doAfterTextChanged { filter(v, it?.toString().orEmpty()) }
             filter(v, text.toString())
         }
+    }
+
+    // Прямая речь (перенесена с вкладки «Голос»): голос из того же движка, что основной (prefs.voice —
+    // вкладка «Голос» сохранила его в onPause до открытия этого окна).
+    private val d by lazy { SileroModels.data(requireContext()) }
+    private val packs by lazy { Packs.installed(requireContext().filesDir) }
+    /** Голоса prefs.quoteVoice нет в списке (пак удалили или он другого движка, чем основной): сервис читает
+     * реплики основным голосом, а выбор в prefs остаётся, пока голос не выберут здесь сами. */
+    private var quoteKept = false
+
+    /** Голоса движка основного голоса (Speaker.sameEngine), в выпадашке после «как основной»; пусто без голосов (lite до пака). */
+    private fun quoteVoices(): List<String> {
+        val main = Speaker.resolve(prefs.voice, d, packs) ?: Speaker.default(d, packs) ?: return emptyList()
+        return Speaker.sameEngine(main, d, packs)
+    }
+
+    private fun loadQuote(v: View) {
+        val voices = quoteVoices()
+        val items = listOf(getString(R.string.quote_voice_default)) + voices.map { Speaker.label(it) }
+        val stored = Speaker.resolve(prefs.quoteVoice, d, packs)
+        val shown = stored?.name?.takeIf { it in voices }?.let(Speaker::label) ?: items.first()
+        val quoteView = v.dropdown(R.id.quoteVoice, items, shown)
+        quoteKept = voices.isNotEmpty() && prefs.quoteVoice.isNotEmpty() && stored?.name !in voices
+        quoteView.helper(if (!quoteKept) null else if (stored == null) getString(R.string.voice_missing, Speaker.label(prefs.quoteVoice), shown)
+            else getString(R.string.quote_voice_other_engine, Speaker.label(stored.name)))
+        quoteView.setOnItemClickListener { _, _, _, _ -> quoteKept = false; quoteView.helper(null) }
+        v.rateSlider(R.id.quoteRate, R.id.quoteRateValue, prefs.quoteRate, getString(R.string.quote_rate_a11y))
+        v.rateSlider(R.id.quotePitch, R.id.quotePitchValue, prefs.quotePitch, getString(R.string.quote_pitch_a11y))
+        // голос, темп и высота видны только при включённом распознавании
+        val quoteGroup = v.findViewById<View>(R.id.quoteGroup)
+        v.findViewById<MaterialSwitch>(R.id.quoteOn).apply {
+            isChecked = prefs.quoteOn
+            quoteGroup.visibility = if (isChecked) View.VISIBLE else View.GONE
+            setOnCheckedChangeListener { _, on -> quoteGroup.visibility = if (on) View.VISIBLE else View.GONE }
+        }
+    }
+
+    private fun saveQuote(v: View) {
+        val voices = quoteVoices()
+        val label = v.findViewById<TextView>(R.id.quoteVoice).text.toString()
+        // без голосов (lite до пака) выпадашка пустая — не затирать голос прямой речи из prefs
+        if (voices.isNotEmpty() && !quoteKept) prefs.quoteVoice = voices.firstOrNull { Speaker.label(it) == label } ?: ""
+        prefs.quoteRate = v.findViewById<Slider>(R.id.quoteRate).value
+        prefs.quotePitch = v.findViewById<Slider>(R.id.quotePitch).value
+        prefs.quoteOn = v.findViewById<MaterialSwitch>(R.id.quoteOn).isChecked
     }
 
     /** Поиск: правило видно, если в названии или подписи есть все слова запроса; заголовок — если
@@ -610,6 +638,7 @@ class RulesFragment : PageFragment(R.layout.fragment_rules) {
             .filter { it.isChecked == (it.tag in Rules.DEFAULT_OFF) }.map { it.tag as String }
         if (!english) prefs.maxLen = (v.findViewById<EditText>(R.id.maxLen).str().toIntOrNull() ?: Rules.MAX_LEN_DEFAULT)
             .coerceIn(Rules.MAX_LEN_MIN, Rules.MAX_LEN_MAX)
+        if (!english) saveQuote(v)
         if (!english) prefs.srMaxLen = (v.findViewById<EditText>(R.id.srMaxLen).str().toIntOrNull() ?: Rules.SR_MAX_LEN_DEFAULT)
             .coerceIn(Rules.MAX_LEN_MIN, Rules.MAX_LEN_MAX)
         v.findViewById<Slider>(R.id.srRate)?.let { prefs.srRate = it.value }
