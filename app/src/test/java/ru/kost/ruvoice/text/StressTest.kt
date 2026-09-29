@@ -190,7 +190,7 @@ class StressTest {
         assertEquals("оба глаза блестели", s.gramPass("оба глаза блестели"))
         assertEquals("две костлявые рук+и обняли", s.gramPass("две костлявые руки обняли"))
         assertEquals("створки окна распахнулись", s.gramPass("створки окна распахнулись"))
-        assertEquals("глаза не видели", s.gramPass("глаза не видели"))
+        assertEquals("глаз+а не видели", s.gramPass("глаза не видели"))   // «не» сразу перед глаголом во мн. — подлежащее
         assertEquals("глаза боятся", s.gramPass("глаза боятся"))
         // количественное слово справа или слева — род. ед.
         assertEquals("а вод+ы нет", s.gramPass("а воды нет"))
@@ -240,6 +240,24 @@ class StressTest {
         assertEquals("до самого парижа", s.gramPass("до самого парижа", source = "до самого Парижа"))
         assertEquals("того самого зарецкого", s.gramPass("того самого зарецкого", source = "того самого Зарецкого"))
         assertEquals("самого лучшего", s.gramPass("самого лучшего"))
+    }
+
+    /** Отчёт пользователя 29.09.2026: фразы из фэнтези-книги, где gramPass молчал или ошибался. */
+    @Test fun gramPassUserReport() {
+        val morph = Morph.open(File(TestData.root(), "app/src/main/assets/morph.bin"))
+        val s = Stress(d, firstVowel, morph = morph)
+        assertEquals("Глаз+а не слезятся?", s.gramPass("Глаза не слезятся?"))
+        assertEquals("Стрелы не было", s.gramPass("Стрелы не было"))
+        // прилагательное только в ед. — не подлежащее во мн., хоть глагол и во мн.
+        assertEquals("у дальней стен+ы стояли", s.gramPass("у дальней стены стояли"))
+        assertEquals("высокие ст+ены стояли", s.gramPass("высокие стены стояли", start = false))
+        assertEquals("были толщиной с мои н+оги", s.gramPass("были толщиной с мои ноги"))
+        assertEquals("почти половину +озера", s.gramPass("почти половину озера"))
+        assertEquals("масса вод+ы которой", s.gramPass("масса воды которой"))
+        assertEquals("часть стен+ы", s.gramPass("часть стены"))
+        assertEquals("только коснусь кр+ая вставки", s.gramPass("только коснусь края вставки"))
+        assertEquals("шрам на пол-лиц+а", s.gramPass("шрам на пол-лица"))
+        assertEquals("Пол-Г+орода", s.gramPass("Пол-Города"))
     }
 
     @Test fun gramPassAgreesWithAdjective() {

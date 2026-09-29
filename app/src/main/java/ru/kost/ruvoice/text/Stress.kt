@@ -78,11 +78,12 @@ class Stress(private val d: SileroData, private val models: StressModels, privat
         "семена", "реки", "семьи", "колокола")
     private val sentEnd = Regex("[.!?…]")
     /** Первое слово всё же в род. ед. — молчим, решает BERT: отрицание дальше в предложении («Слова сочувствия не дождёшься»,
-     * «Ноги моей не будет», «Леса поблизости не было»), глагол с родительным рядом («Губы коснулся ветерок», «Стены замка
+     * «Ноги моей не будет», «Леса поблизости не было»; но не «Глаза не слезятся» — «не» сразу перед глаголом во мн.), глагол с родительным рядом («Губы коснулся ветерок», «Стены замка
      * коснулся луч»), согласованное прилагательное в ед. («Леса густого тень», «Цены высокой») или существительное без
      * родительного («Свечи огарок», «Стрелы наконечник» — инверсия; «Глаза Анфертьева», «Стены домов» — род., мн.). */
     private fun initGen(w: String, nxt: String, nxt2: String, words: List<MatchResult>, i: Int): Boolean {
-        if (words.drop(i + 1).any { it.value.lowercase() in neg } || genVerb.matches(nxt) || genVerb.matches(nxt2)) return true
+        val negPl = nxt in neg && verbLike(nxt2) && verbPlEnd.matches(nxt2)
+        if (!negPl && words.drop(i + 1).any { it.value.lowercase() in neg } || genVerb.matches(nxt) || genVerb.matches(nxt2)) return true
         if (morph == null || nxt.isEmpty()) return false
         val t = morph.tags(nxt)
         if (Morph.isAdjective(t) && !Morph.isNoun(t)) return Morph.adjCases(t, null, true).none { it == Case.NOM || it == Case.ACC }
@@ -122,6 +123,10 @@ class Stress(private val d: SileroData, private val models: StressModels, privat
     /** На «-ого/-его» кончаются и местоимения, после которых стоит именительный: «его руки», «у него дела». */
     private val notAdjective = setOf("его", "него", "чего", "кого", "ничего", "никого", "некого", "нечего", "всего", "сего", "много", "немного", "итого",
         "отчего", "оттого")   // «отчего цены» наречие, «отчего дома» прилагательное — BERT прав в обоих, правило нет
+    /** «половину озера», «часть стены», «масса воды»: после них род. ед. — им./вин. мн. тут не бывает. */
+    private val partGov = setOf("половина", "половину", "половины", "половиной", "часть", "части", "частью", "масса", "массу", "массы", "массой")
+    /** «коснись жел+еза», «коснусь кр+ая»: «коснуться/касаться» управляют только родительным. */
+    private val touchVerb = Regex("(при)?(косн|каса)[а-яё]*")
     /** «размером с горы», «высотой с дома»: после «с» вин. мн., не родительный. */
     private val sizeWords = setOf("размером", "высотой", "ростом", "величиной", "длиной", "шириной", "толщиной", "весом")
     private val gramWordRe = Regex("[а-яё+-]+", RegexOption.IGNORE_CASE)
@@ -182,14 +187,15 @@ class Stress(private val d: SileroData, private val models: StressModels, privat
             if (e != null) {
                 val verbNext = verbLike(nxt) && verbPlEnd.matches(nxt) || w in subjAdv && adverbLike(nxt) && verbLike(nxt2) && verbPlEnd.matches(nxt2)
                 val subjPl = w in verbPl && "p" in e && verbNext && prev !in neg &&
-                    prev !in dual && prev2 !in dual && prev3 !in dual && (morph == null || !Morph.isNoun(morph.tags(prev)))
+                    prev !in dual && prev2 !in dual && prev3 !in dual && (morph == null || !Morph.isNoun(morph.tags(prev)) && !singularAdj(morph, prev))
                 val pick = when {
                     !adjacent -> if (subjPl || rules.on("first_pl") && w in initPl && "p" in e && !initGen(w, nxt, nxt2, words, i) &&
                         (if (prevEnd < 0) start else sentEnd.containsMatchIn(sentence.subSequence(prevEnd, m.range.first)))) e["p"] else null
                     "i" in e -> if (phaseRe.matches(prev)) e["i"] else null
                     // «её глаз+а», «в его глаз+а», «из его гл+аза»; за существительным или прилагательным в косвенном падеже
                     // («хрусталик его глаза», «одного его слова») — молчим, там род. ед. и решают фразы Silero
-                    prev in possPron && w in possPl -> if (prev2 in genGov || prev2 in dual || prev2 in quantGov || genVerb.matches(prev2) ||
+                    prev in possPron && w in possPl -> if (prev2 == "с" && prev3 in sizeWords) e["p"]   // «толщиной с мои н+оги»
+                        else if (prev2 in genGov || prev2 in dual || prev2 in quantGov || genVerb.matches(prev2) ||
                         (prev2 == "под" || prev2 == "за") && prev3 == "из") e["g"]
                         else if (obliqueEnd.matches(prev2) || morph != null && morph.tags(prev2) != 0) null else e["p"]
                     (prev == "под" || prev == "за") && prev2 == "из" -> e["g"] ?: e["n"]   // «из под», «из за» без дефиса
@@ -197,6 +203,7 @@ class Stress(private val d: SileroData, private val models: StressModels, privat
                     prev == "с" && prev2 in sizeWords -> e["p"]
                     prev in genGov -> e["g"] ?: e["n"]
                     prev in quantGov -> if (prev2 == "не" && (prev == "столько" || prev == "сколько")) null else e["g"]   // «не столько слов+а, сколько…»
+                    prev in partGov || touchVerb.matches(prev) -> e["g"]
                     "l" in e && e["l"] != e["g"] -> loc2Pick(prev, prev2, prev3, e, w)      // «в кров+и» / «ана́лиз кр+ови»
                     prev in locPrep && "l" in e -> e["l"]                                  // «в глуш+и» — второй предложный
                     (prev == "в" || prev == "во") && "g" in e && "p" !in e -> null         // «выйти в учителя» — им. мн.
@@ -222,6 +229,14 @@ class Stress(private val d: SileroData, private val models: StressModels, privat
                     sb.replace(m.range.first + offset, m.range.last + 1 + offset, out.toString()); offset += out.length - raw.length
                     if (prev == "все" && pick == e["p"]) vse = true   // «все окна»: слово согласовано с «все» во мн.
                 }
+            }
+            // «пол-лиц+а», «пол-г+орода»: после «пол-» всегда род. ед. (акцентор читает части по отдельности: «п+ол-л+ица»)
+            val half = if (e == null && w.startsWith("пол-")) d.gram[w.substring(4)]?.get("g") else null
+            if (half != null) {
+                val start = m.range.first + offset + 4; val raw = m.value.substring(4); var k = 0
+                val out = StringBuilder(half.length)
+                for (c in half) if (c == '+') out.append('+') else { out.append(if (raw[k].isUpperCase()) c.uppercaseChar() else c); k++ }
+                sb.replace(start, start + raw.length, out.toString()); offset += out.length - raw.length
             }
             if (e == null && w == "самого" && nxt.isNotEmpty()) {
                 val caps = samCaps.getOrNull(samI++) ?: false
@@ -273,6 +288,12 @@ class Stress(private val d: SileroData, private val models: StressModels, privat
         if (!Morph.isAdjective(ta) || !Morph.isNoun(tw)) return false
         if (Morph.adjCases(ta, null, true).any { it == Case.NOM || it == Case.ACC }) return false
         return Morph.genders(tw).ifEmpty { Gender.values().toList() }.any { Case.PRE in Morph.adjCases(ta, it, false) }
+    }
+
+    /** Прилагательное только в ед. ч. («у дальней стены стояли»): слово за ним — не подлежащее во мн. */
+    private fun singularAdj(m: Morph, prev: String): Boolean {
+        val t = m.tags(prev.replace("+", ""))
+        return Morph.isAdjective(t) && !Morph.isNoun(t) && Morph.adjCases(t, null, true).none { it == Case.NOM || it == Case.ACC }
     }
 
     private fun agree(m: Morph, prev: String, prev2: String, prev3: String, prev4: String, chainHead: String, w: String, e: Map<String, String>): String? {

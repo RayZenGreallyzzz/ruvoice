@@ -33,6 +33,8 @@ PASSIVE_PL = re.compile(r'[а-яё]+(нн|т|м)ые$')
 
 
 LOC_PREP = {'в', 'во', 'на', 'при'}
+PART_GOV = set('половина половину половины половиной часть части частью масса массу массы массой'.split())   # «половину +озера»
+TOUCH_VERB = re.compile(r'(при)?(косн|каса)[а-яё]*$')   # «коснись жел+еза»: только родительный
 SIZE = set('размером высотой ростом величиной длиной шириной толщиной весом'.split())
 PARTICIPLE = ('вшего', 'ющего', 'ущего', 'ащего', 'ящего')
 GEN_ADJ = re.compile(r'(лишённ|лишенн|полн)(ый|ая|ое|ые|ого|ой|ых|ым|ыми|ую|ому|ом)$')
@@ -126,6 +128,7 @@ def gram_pick(prev, prev2, e, in_homo=False, w=None, morph=None, prev3=None, pre
     prev2 = prev2 or ''
     if 'i' in e: return e['i'] if PHASE.fullmatch(prev) else None
     if prev in POSS_PRON and w in POSS_PL:
+        if prev2 == 'с' and prev3 in SIZE: return e['p']   # «толщиной с мои н+оги»
         if prev2 in GEN or prev2 in DUAL or prev2 in QUANT_GOV or GEN_VERB.match(prev2) or prev2 in ('под', 'за') and prev3 == 'из': return e['g']
         return None if OBLIQUE_END.match(prev2) or morph and morph.tags(prev2) != 0 else e['p']
     if prev in ('под', 'за') and prev2 == 'из': return e.get('g') or e.get('n')
@@ -133,6 +136,7 @@ def gram_pick(prev, prev2, e, in_homo=False, w=None, morph=None, prev3=None, pre
     if prev == 'с' and prev2 in SIZE: return e.get('p')
     if prev in GEN: return e.get('g') or e.get('n')
     if prev in QUANT_GOV: return None if prev2 == 'не' and prev in ('столько', 'сколько') else e.get('g')
+    if prev in PART_GOV or TOUCH_VERB.match(prev): return e.get('g')
     if 'l' in e and e['l'] != e.get('g'): return loc2_pick(prev, prev2, prev3, e, w, morph)
     if prev in LOC_PREP and 'l' in e: return e['l']
     if prev in ('в', 'во') and 'g' in e and 'p' not in e: return None
@@ -151,7 +155,8 @@ def gram_pick(prev, prev2, e, in_homo=False, w=None, morph=None, prev3=None, pre
 def init_gen(nxt, nxt2, toks, morph):
     """Зеркало Stress.initGen: первое слово в род. ед. — отрицание дальше, глагол с родительным рядом, согласованное
     прилагательное в ед. или существительное без родительного после."""
-    if any(t in NEG for t in toks[1:]) or nxt and GEN_VERB.match(nxt) or nxt2 and GEN_VERB.match(nxt2): return True
+    neg_pl = nxt in NEG and verb_like(nxt2, morph) and VERB_PL_END.match(nxt2 or '')   # «Глаза не слезятся»
+    if not neg_pl and any(t in NEG for t in toks[1:]) or nxt and GEN_VERB.match(nxt) or nxt2 and GEN_VERB.match(nxt2): return True
     if not morph or not nxt: return False
     t = morph.tags(nxt)
     if morph.is_adjective(t) and not morph.is_noun(t): return not morph.adj_cases(t, None, True) & {'nom', 'acc'}
@@ -161,7 +166,13 @@ def init_gen(nxt, nxt2, toks, morph):
 def subj_pl(w, e, prev, nxt, morph, prev2=None, prev3=None, nxt2=None):
     verb_next = verb_like(nxt, morph) and VERB_PL_END.match(nxt) or w in SUBJ_ADV and adverb_like(nxt, morph) and verb_like(nxt2, morph) and VERB_PL_END.match(nxt2)
     return (w in VERB_PL and 'p' in e and verb_next and prev not in NEG
-            and not {prev, prev2, prev3} & DUAL and not (prev and morph and morph.is_noun(morph.tags(prev))))
+            and not {prev, prev2, prev3} & DUAL and not (prev and morph and (morph.is_noun(morph.tags(prev)) or singular_adj(morph, prev))))
+
+
+def singular_adj(m, prev):
+    """Зеркало Stress.singularAdj: прилагательное только в ед. ч. («у дальней стены стояли») — слово за ним не подлежащее."""
+    t = m.tags(prev.replace('+', ''))
+    return m.is_adjective(t) and not m.is_noun(t) and not m.adj_cases(t, None, True) & {'nom', 'acc'}
 
 
 def agree(m, prev, prev2, w, e, prev3=None, prev4=None, chain_head=None):
@@ -204,7 +215,9 @@ def extra_pick(w, low):
     gramPass и словаря ударений (stress_fixes): Stress.userDictPass не трогает слова, пришедшие уже с «+»."""
     global _extra
     # «*» в фразе — маска словаря замен (буквы, в том числе ничего): «*ым потом» — любое слово на -ым
-    if _extra is None: _extra = {w: [(re.compile(r'(?<![а-яё-])' + re.escape(p).replace(r'\*', '[а-яё-]*') + r'(?![а-яё-])'), v) for p, v in items] for w, items in load_extra().items()}
+    # длинная фраза раньше короткой — как в словаре замен аппки («можно и еду» перебивает «еду из»)
+    if _extra is None: _extra = {w: [(re.compile(r'(?<![а-яё-])' + re.escape(p).replace(r'\*', '[а-яё-]*') + r'(?![а-яё-])'), v)
+                                     for p, v in sorted(items, key=lambda x: -len(x[0]))] for w, items in load_extra().items()}
     for rx, v in _extra.get(w.replace('ё', 'е'), ()):   # ключи через «е», а модель могла вернуть «л+ёту»
         if rx.search(low): return v
     return None
@@ -216,6 +229,7 @@ def app_pick(w, toks, i, low, gram, homo, morph, phrase_pick, raw=None):
     raw — те же слова в исходном регистре (для «самого Зарецкого»); без них правило «самого» молчит."""
     ours = extra_pick(w, low)
     if ours: return ours
+    if w.startswith('пол-') and 'g' in gram.get(w[4:], {}): return 'пол-' + gram[w[4:]]['g']   # «пол-лиц+а»
     nxt, nxt2 = (toks[i + 1] if i + 1 < len(toks) else None), (toks[i + 2] if i + 2 < len(toks) else None)
     if w == 'самого' and raw and i + 1 < len(raw) and raw[i + 1][0].isupper() and (i == 0 or toks[i - 1] not in SAM_PLACE): return 'самог+о'
     if w in gram and i == 0 and (subj_pl(w, gram[w], '', nxt, morph, nxt2=nxt2) or w in INIT_PL and 'p' in gram[w] and not init_gen(nxt, nxt2, toks, morph)): return gram[w]['p']
