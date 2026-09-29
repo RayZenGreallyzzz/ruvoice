@@ -40,6 +40,10 @@ class YoDictTest {
         assertNull(yo.restore("Колесников"))               // фамилия — только строчными
         assertEquals("колёсников", yo.restore("колесников"))
         assertEquals("Колёсника", yo.restore("Колесника"))
+        assertNull(yo.restore("родней"))                   // омограф: сравнит. «родной»
+        assertEquals("роднёю", yo.restore("роднею"))
+        assertNull(yo.restore("мощен"))
+        assertEquals("мощёная", yo.restore("мощеная"))
     }
 
     @Test fun accentorPassUsesDict() {
