@@ -118,7 +118,7 @@ class Prefs(private val context: Context) {
     var replaceSampleOpen: Boolean get() = p.getBoolean("replace_sample_open", false); set(v) = p.edit().putBoolean("replace_sample_open", v).apply()
     var focusLevel: Int get() = p.getInt("focus_level", Rules.FOCUS_DEFAULT); set(v) = p.edit().putInt("focus_level", v).apply()
 
-    /** Правила для пайплайна: выключенные тумблеры плюс «прямая речь» с вкладки «Голос». */
+    /** Правила для пайплайна: выключенные тумблеры плюс «прямая речь» (секция внизу «Настроек»). */
     fun rules() = Rules(rulesOff + (if (quoteOn) emptySet() else setOf("speech")), maxLen.coerceIn(Rules.MAX_LEN_MIN, Rules.MAX_LEN_MAX),
         focusLevel.coerceIn(Rules.FOCUS_MIN, Rules.FOCUS_MAX), srMaxLen.coerceIn(Rules.MAX_LEN_MIN, Rules.MAX_LEN_MAX))
 
