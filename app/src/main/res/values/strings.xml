@@ -73,6 +73,7 @@
     <string name="quote_on">Распознавать прямую речь</string>
     <string name="quote_voice">Голос прямой речи</string>
     <string name="quote_voice_default">как основной</string>
+    <string name="quote_voice_other_engine">Голос «%1$s» из другого движка, чем основной голос, поэтому реплики читаются основным. Выбор сохранён: вернёте основной голос того же движка — прямая речь снова будет своим голосом.</string>
     <string name="voice_bound_this">Голос привязан к этому профилю, «%1$s»</string>
     <string name="voice_bound">Голос привязан к профилю «%1$s»</string>
     <string name="voice_missing">Голоса «%1$s» на телефоне нет, сейчас читает %2$s. Выбор сохранён: вернёте пак — голос вернётся.</string>
