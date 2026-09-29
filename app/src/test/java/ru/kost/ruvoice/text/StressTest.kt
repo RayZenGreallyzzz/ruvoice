@@ -196,6 +196,9 @@ class StressTest {
         assertEquals("а вод+ы нет", s.gramPass("а воды нет"))
         assertEquals("мало вод+ы", s.gramPass("мало воды"))
         assertEquals("много глаз", s.gramPass("много глаз"))
+        // доля целого — род. ед.
+        assertEquals("половину +озера", s.gramPass("половину озера"))
+        assertEquals("часть стен+ы", s.gramPass("часть стены"))
     }
 
     @Test fun gramPassPossessiveAndSubjectThroughAdverb() {
