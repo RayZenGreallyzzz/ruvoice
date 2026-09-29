@@ -35,6 +35,13 @@ ORTHOEPY = [('гм', 'гмм'), ('хм', 'хмм'), ('тсс', 'тссс'), ('д
 # другие «с+согласная» в начале он читает верно (на слух 24.09.2026, share/spokoinoe)
 
 
+def aot_forms():
+    """Все словоформы AOT (app/build/aot_forms.tsv из tools/aot_forms.py), строчными, «ё» как в словаре."""
+    path = os.path.join(ROOT, 'app/build/aot_forms.tsv')
+    assert os.path.exists(path), f'нет {path}: сначала python3 tools/aot_forms.py <каталог morph_dict/data/Russian>'
+    return {line.split('\t', 1)[0] for line in open(path, encoding='utf-8')}
+
+
 def load_lib(path, skip):
     """«слово = сл+ово»: буквы значения могут отличаться от ключа на «ё»/«э» — словарь подменяет слово целиком (Stress.userDictPass)"""
     out = {}
@@ -57,10 +64,14 @@ def main():
         for w, v in sorted(fixes.items()): o.write(f'{w} {v}\n')
         lib = load_lib(os.path.join(HERE, 'lib_names.txt'), set(fixes))
         names = {w: v for w, v in stress_fixes.load_fixes(os.path.join(HERE, 'wiki_names.txt')).items() if w not in fixes and w not in lib}
-        o.write('# Имена и термины из первых абзацев Википедии, где модель ставит ударение иначе (tools/wiki_names.py); с «ё» — и через «е»\n')
+        # Ключ через «е» для слова с «ё» ставит «ё» безусловно, поэтому не пишем его, если так пишется другое слово:
+        # своя строка с этим ключом («Лебрен» и «Лебрён», «Неман» и «Нёман») или форма AOT («Петра» от «Пётр», не «Пётра»)
+        known = set(fixes) | set(names) | set(lib) | aot_forms()
+        o.write('# Имена и термины из первых абзацев Википедии, где модель ставит ударение иначе (tools/wiki_names.py); с «ё» — и через «е», если так не пишется другое слово\n')
         for w, v in sorted(names.items()):
             o.write(f'{w} {v}\n')
-            if 'ё' in w: o.write(f'{w.replace("ё", "е")} {v}\n')
+            e = w.replace('ё', 'е')
+            if e != w and e not in known: o.write(f'{e} {v}\n'); known.add(e)
         o.write('# Слова и имена из библиотеки книг, где модель ставит иначе (books/lib_names.py); значение может нести «ё» и твёрдое «э»\n')
         for w, v in sorted(lib.items()):
             o.write(f'{w} {v}\n')

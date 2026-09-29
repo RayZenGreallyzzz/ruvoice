@@ -32,6 +32,20 @@ class YoDictTest {
         assertEquals("киёв", yo.restore("киев"))
     }
 
+    @Test fun dropFixes() {  // tools/yo_drop.txt
+        assertNull(yo.restore("Поддев"))                   // деепричастие от «поддеть»
+        assertEquals("поддёвкой", yo.restore("поддевкой"))
+        assertEquals("поддёвом", yo.restore("поддевом"))
+        assertNull(yo.restore("черчу"))
+        assertNull(yo.restore("Колесников"))               // фамилия — только строчными
+        assertEquals("колёсников", yo.restore("колесников"))
+        assertEquals("Колёсника", yo.restore("Колесника"))
+        assertNull(yo.restore("родней"))                   // омограф: сравнит. «родной»
+        assertEquals("роднёю", yo.restore("роднею"))
+        assertNull(yo.restore("мощен"))
+        assertEquals("мощёная", yo.restore("мощеная"))
+    }
+
     @Test fun accentorPassUsesDict() {
         val s = Stress(d, firstVowel, yo = yo)
         assertEquals("+ёжик ш+ёл", s.apply("ежик шел"))           // «ё» из словаря, ударение на неё

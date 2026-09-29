@@ -4,12 +4,12 @@
 а написание через «е» ни один из них не знает как отдельное слово; спорные по eyo (not_safe.txt: Алфёров/Алферов) не берём. Кандидаты — из любого списка ёфикации
 (аргумент: файл «слово=слово с ё» или просто слова с «ё» по одному в строке); в репо идёт только отсев, tools/yo_extra.txt.
 Все записи с «_» — только строчными: через «е» с заглавной это чаще фамилия (Груздев, Блек, Одер), а не грузде́в/блёк.
-Ассет собирается заново: app/build/eyo_safe.txt (оригинал eyo) + отсев. Проверка: tools/yo_eval.py.
+Ассет собирается заново: app/build/eyo_safe.txt (оригинал eyo) с поправками tools/yo_drop.txt + отсев. Проверка: tools/yo_eval.py.
 Запуск: python3 tools/yo_extra.py <кандидаты.txt>"""
 import os, re, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE); BUILD = os.path.join(ROOT, 'app/build')
-EXTRA = os.path.join(HERE, 'yo_extra.txt'); ASSET = os.path.join(ROOT, 'app/src/main/assets/eyo_safe.txt')
+EXTRA = os.path.join(HERE, 'yo_extra.txt'); DROP = os.path.join(HERE, 'yo_drop.txt'); ASSET = os.path.join(ROOT, 'app/src/main/assets/eyo_safe.txt')
 HEADER = '# safe.txt из eyo-kernel 4.1.3 (github.com/e2yo/eyo-kernel, MIT, © Denis Seleznev): слова, где «ё» бесспорна. Формат: слово(окончание|…), _только строчными, # комментарий\n'
 
 
@@ -39,10 +39,34 @@ def sieve(candidates):
     return sorted(keep)
 
 
+def load_drop():
+    """tools/yo_drop.txt: (формы убрать, формы только строчными)."""
+    drop, lower = set(), set()
+    for line in open(DROP, encoding='utf-8'):
+        t = line.split('#')[0].strip()
+        if t: (drop if t[0] == '-' else lower).update(expand(t[1:]))
+    return drop, lower
+
+
+def patched(lines):
+    """Строки eyo с поправками yo_drop.txt: затронутую строку пишем по формам."""
+    drop, lower = load_drop(); used = set()
+    for line in lines:
+        t = line.split('#')[0].strip()
+        flag = '_' if t.startswith('_') else ''
+        forms = expand(t.lstrip('_'))
+        hit = [f for f in forms if f in drop or f in lower]
+        if not hit: yield line; continue
+        used.update(hit)
+        for f in forms:
+            if f not in drop: yield ('_' if f in lower else flag) + f
+    assert used == drop | lower, f'нет в eyo: {sorted(drop | lower - used)}'
+
+
 def build_asset():
     with open(ASSET, 'w', encoding='utf-8') as o:
         o.write(HEADER)
-        o.write(open(os.path.join(BUILD, 'eyo_safe.txt'), encoding='utf-8').read().rstrip('\n') + '\n')
+        for line in patched(open(os.path.join(BUILD, 'eyo_safe.txt'), encoding='utf-8').read().rstrip('\n').split('\n')): o.write(line + '\n')
         o.write('# --- добор: формы AOT/Викисловаря с «ё» (tools/yo_extra.py → tools/yo_extra.txt), только строчными\n')
         for line in open(EXTRA, encoding='utf-8'):
             if line.strip() and not line.startswith('#'): o.write('_' + line.strip() + '\n')
