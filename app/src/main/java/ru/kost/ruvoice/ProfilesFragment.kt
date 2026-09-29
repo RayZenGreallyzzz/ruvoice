@@ -53,6 +53,8 @@ class ProfilesFragment : Fragment(R.layout.fragment_profiles) {
                     host.restartForProfile(getString(R.string.profile_switched, p.name))
                 }
             }
+            // отдельной кнопки «Сохранить» нет: правки уходят в выбранный профиль сами (Profiles.switchTo, snapshot)
+            row.findViewById<View>(R.id.profileAutosave).visibility = if (p.id == active) View.VISIBLE else View.GONE
             // TalkBack: у каждой строки свои кнопки — без имени профиля их не различить
             row.findViewById<Button>(R.id.profileRename).apply {
                 contentDescription = getString(R.string.profile_rename_named, p.name)
