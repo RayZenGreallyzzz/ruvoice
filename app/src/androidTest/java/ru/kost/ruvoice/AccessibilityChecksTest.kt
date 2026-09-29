@@ -78,6 +78,12 @@ class AccessibilityChecksTest {
                 onView(allOf(withText(ctx.getString(tab)), isDescendantOfA(withId(R.id.tabs)))).perform(androidx.test.espresso.action.ViewActions.scrollTo(), click())
                 assertKeyboardReachable()
             }
+            // «Изменения сохраняются автоматически» под выбранным профилем: видна и доступна TalkBack
+            onView(withText(R.string.profile_autosave)).check { v, _ ->
+                assertTrue("строка скрыта", v.isShown)
+                assertTrue("TalkBack её пропустит", v.isImportantForAccessibility)
+                assertEquals(ctx.getString(R.string.profile_autosave), v.createAccessibilityNodeInfo().text?.toString())
+            }
         }
     }
 
