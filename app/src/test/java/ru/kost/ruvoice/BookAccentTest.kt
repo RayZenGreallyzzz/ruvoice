@@ -74,6 +74,13 @@ class BookAccentTest {
         assertEquals(true, "<p>Раз &amp; два</p>\n<p>&lt;Три&gt;</p>" in x)
     }
 
+    @Test fun txtControlCharsDropped() {
+        // текст, вытащенный из базы анекдотов: строки через \r, записи через NUL, служебные байты — в XML их быть не должно
+        val x = BookAccent.source("Раз\rдва.\u0000\rТри\u0008.\u0000Четыре\u0002\n".toByteArray(), "Книга")
+        assertEquals(true, "<p>Раз</p>\n<p>два.</p>\n<p>Три.</p>\n<p>Четыре</p>\n</section>" in x)
+        javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(x.byteInputStream())
+    }
+
     @Test fun homographsOnly() {
         val src = "Старый замок стоял все лето, 5 домов."
         val acc = listOf("ст+арый з+амок сто+ял всё л+ето, пять дом+ов.")

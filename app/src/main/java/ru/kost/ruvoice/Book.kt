@@ -16,11 +16,17 @@ object Book {
 
     private fun fb2(s: String) = strip(s.replace(fb2Skip, ""))
 
-    /** Кодировка из заголовка XML (fb2 часто в cp1251), иначе как у словарей: UTF-8 или cp1251. */
+    /**
+     * Кодировка из заголовка XML (fb2 часто в cp1251), иначе как у словарей: UTF-8 или cp1251. Управляющие символы,
+     * запрещённые в XML (до пробела, кроме табуляции и переводов строк), выбрасываются: в текстах, вытащенных из чужих
+     * форматов, их бывают сотни, и fb2 с ними не открывает ни одна читалка. NUL там обычно разделяет записи — он
+     * становится переводом строки, чтобы соседние куски не слиплись в одно слово.
+     */
     fun decode(bytes: ByteArray): String {
         val head = String(bytes, 0, minOf(bytes.size, 200), Charsets.ISO_8859_1)
         val enc = encRe.find(head)?.groupValues?.get(1)
-        return try { if (enc != null) String(bytes, charset(enc)) else Dicts.decode(bytes) } catch (e: Exception) { Dicts.decode(bytes) }
+        val s = try { if (enc != null) String(bytes, charset(enc)) else Dicts.decode(bytes) } catch (e: Exception) { Dicts.decode(bytes) }
+        return s.replace('\u0000', '\n').replace(controlRe, "")
     }
 
     private fun zip(bytes: ByteArray): String = buildString {
@@ -45,6 +51,7 @@ object Book {
     }
 
     private val encRe = Regex("encoding=[\"']([^\"']+)")
+    private val controlRe = Regex("[\\x01-\\x08\\x0B\\x0C\\x0E-\\x1F\\uFFFE\\uFFFF]")
     private val fb2Skip = Regex("<(description|binary|body name=\"(notes|comments)\")[\\s\\S]*?</(description|binary|body)>")
     private val skipRe = Regex("<(head|style|script)\\b[\\s\\S]*?</\\1>|<!--[\\s\\S]*?-->", RegexOption.IGNORE_CASE)
     private val breakRe = Regex("</(p|v|div|h[1-6]|li|title|subtitle|text-author|tr)>|<br\\b[^>]*>", RegexOption.IGNORE_CASE)
