@@ -33,6 +33,9 @@ class ReplacementsTest {
         assertEquals("б+ело-голубая", r.apply("бело-голубая"))
         assertEquals("св+етло-серый", r.apply("светло-серый"))
         assertEquals("распад +эс+эсэс+эр.", r.apply("распад СССР."))
+        // 30.09.2026: ударный предлог и частица, исключения длиннее голой пары
+        assertEquals("жаловаться н+еначто", r.apply("жаловаться не на что"))
+        assertEquals("надел очки н+анос и ушёл на н+ос корабл+я", r.apply("надел очки на нос и ушёл на нос корабля"))
     }
 
     @Test fun phraseWithStressOnNeighbourWord() {
