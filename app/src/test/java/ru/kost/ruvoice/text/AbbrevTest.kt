@@ -51,6 +51,7 @@ class AbbrevTest {
 
     @Test fun exceptionListOverridesLetterByLetterReading() {
         assertEquals("ги бэ дэ д+э", Abbrev.apply("ГИБДД"))
+        assertEquals("доверие к см+и падает, пишут см+и.", Abbrev.apply("доверие к СМИ падает, пишут СМИ."))
     }
 
     @Test fun tokenGluedToDigitByHyphenLeftUntouched() {
