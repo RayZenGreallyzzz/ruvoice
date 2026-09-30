@@ -19,6 +19,20 @@ class AbbrevTest {
         assertEquals("сдал е гэ +э", Abbrev.apply("сдал ЕГЭ"))
     }
 
+    @Test fun lowercaseWithoutVowelsSpelledByLetters() {
+        // расшифровки YouTube: аббревиатуры строчными
+        assertEquals("рост вэ вэ п+э, тарифы жэ ка х+а и энн дэ +эс", Abbrev.apply("рост ввп, тарифы жкх и ндс"))
+        assertEquals("эмм чэ +эс и ээр +эф", Abbrev.apply("Мчс и рф"))
+    }
+
+    @Test fun abbreviationsWithVowelsFromSpellList() {
+        assertEquals("а э +эс, о а +э, и п+э, у к+а", Abbrev.apply("АЭС, ОАЭ, ИП, УК"))
+    }
+
+    @Test fun lowercaseUnitsInterjectionsAndWordsLeftUntouched() {
+        assertEquals("хм, 5 км, см. гл. 2, тсс, ммм, в рот", Abbrev.apply("хм, 5 км, см. гл. 2, тсс, ммм, в рот"))
+    }
+
     @Test fun cyrillicWordAcronymWithVowelsLeftUntouched() {
         assertEquals("служил в НАТО", Abbrev.apply("служил в НАТО"))
     }
