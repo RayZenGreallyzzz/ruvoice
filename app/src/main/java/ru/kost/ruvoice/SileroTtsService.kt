@@ -237,7 +237,7 @@ class SileroTtsService : TextToSpeechService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm.getNotificationChannel(CHANNEL) == null)
             nm.createNotificationChannel(NotificationChannel(CHANNEL, getString(R.string.app_name), NotificationManager.IMPORTANCE_MIN))
         val n: Notification = NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(getString(if (srHold()) R.string.fg_screen_reader else R.string.fg_reading))
             .setPriority(NotificationCompat.PRIORITY_MIN)
