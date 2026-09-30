@@ -67,7 +67,7 @@ class Rules(val off: Set<String> = emptySet(), val maxLen: Int = MAX_LEN_DEFAULT
             "abbrev", "spell_cyr", "spell_lat", "letter_digit", "latin", "homoglyphs",
             "en_proxy_books", "en_proxy_sr",
             "dehyphen", "soft_break", "punct", "ssml",
-            "gram", "first_pl", "homo", "accentor", "yo", "hard_e", "prefix_space", "end_dot", "end_oxy", "intonation", "focus", "exclaim", "question",
+            "gram", "first_pl", "homo", "accentor", "yo", "hard_e", "prefix_space", "end_dot", "end_oxy", "short_word", "intonation", "focus", "exclaim", "question",
             "pause_semicolon", "pause_parens", "fast_cores",
             "verbose_log",
         )

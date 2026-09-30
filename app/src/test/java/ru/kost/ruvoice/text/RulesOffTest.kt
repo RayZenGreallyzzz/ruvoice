@@ -173,4 +173,15 @@ class RulesOffTest {
         assertEquals("востр+о!" to false, oxy.modelEnd("востр+о!"))
         assertEquals("востр+о..." to false, oxy.modelEnd("востр+о..."))
     }
+
+    /** Реплика из одного короткого слова на гласную: гласная сдвоена, всё остальное как есть. */
+    @Test fun shortWordStretched() {
+        val stress = Stress(d, firstVowel, rules = off("homo", "gram"))
+        assertEquals("– д+аа.", stress.stretchShort("– д+а."))
+        assertEquals("Кт+оо?", stress.stretchShort("Кт+о?"))
+        assertEquals("– вс+ёё…", stress.stretchShort("– вс+ё…"))
+        for (s in listOf("д+а", "н+у д+а.", "м+оя.", "н+ет.", "+я.", "стр+о.", "– д+а, к+онечно.", "– д+а. +я пойд+у."))
+            assertEquals(s, stress.stretchShort(s))
+        assertEquals("– д+а.", Stress(d, firstVowel, rules = off("short_word")).stretchShort("– д+а."))
+    }
 }

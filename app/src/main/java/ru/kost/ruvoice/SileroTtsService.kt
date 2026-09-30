@@ -563,21 +563,22 @@ class SileroTtsService : TextToSpeechService() {
                         models.ensureLoaded(voice.pack)
                         val (accented, endDot) = stress.modelEnd(stress.apply(prepared, marks.text))
                         if (auditNames) audit.names(seg.text, accented, known)
-                        val forModel = stress.forModel(accented)
+                        val spoken = stress.stretchShort(accented)
+                        val forModel = stress.forModel(spoken)
                         if (!screenReader && rules.on("verbose_log")) note("в модель: «${visible(forModel)}»")
                         val seq = sym.sequence(forModel)
                         // интонация вопросов/восклицаний и логическое ударение есть только у v5_5_ru
                         val typeIds = if (voice.types) SentenceType.typeIds(prepared, SentenceType.classify(marks.text, d, rules), seq.size, d) else LongArray(seq.size)
                         val curSpeakerId = if (seg.speech) quoteSpeakerId ?: speakerId else speakerId
                         val curPitch = pitch * (if (seg.speech) quotePitch else 1f)
-                        val al = Marks.align(marks.words, accented, seq.size, sym)
+                        val al = Marks.align(marks.words, spoken, seq.size, sym)
                         for (i in al.pitches.indices) al.pitches[i] *= curPitch
-                        // seq = sos + accented + eos, индексы совпадают с durs напрямую.
+                        // seq = sos + spoken + eos, индексы совпадают с durs напрямую.
                         // seq[1] — первый символ сегмента: тире перед репликой («— Привет»), пауза там — тишина до слов.
                         // Тире после знака («, —», «! —») — авторская ремарка, паузу уже дал сам знак.
                         val symbDurs = (2 until seq.size).mapNotNull { i ->
                             val fr = pauseFrames[seq[i].toInt()] ?: return@mapNotNull null
-                            if (accented[i - 1] in "–—" && accented.substring(0, i - 1).trimEnd().lastOrNull()?.let { it in Marks.PUNCT } == true) null else i.toLong() to fr
+                            if (spoken[i - 1] in "–—" && spoken.substring(0, i - 1).trimEnd().lastOrNull()?.let { it in Marks.PUNCT } == true) null else i.toLong() to fr
                         }.toMap() + (if (endDot) mapOf((seq.size - 2).toLong() to 1L) else emptyMap()) + al.symbDurs
                         SegOut.Model(models.synthesize(seq, curSpeakerId, sr, al.rates, al.pitches, typeIds, al.focus, symbDurs, voice.types), Marks.tokens(accented, sym))
                     } catch (e: Throwable) {

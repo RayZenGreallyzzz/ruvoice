@@ -473,6 +473,11 @@ class Stress(private val d: SileroData, private val models: StressModels, privat
     }
     /** Последнее слово: есть гласная до ударной, после ударной — только согласные. */
     private val oxytoneEndRe = Regex("[аеёиоуыэюя]\\S*\\+[аеёиоуыэюя][^\\sаеёиоуыэюя]*$", RegexOption.IGNORE_CASE)
+    /** Кусок из одного слова в 2–3 буквы с единственной гласной на конце («— Да.», «Кто?», «Всё.»): последней букве куска
+     * модель всегда даёт 13 кадров (162 мс, symb_durs и durs_rate не действуют), при ускорении от «да» остаётся «д'».
+     * Сдвоенная гласная — 255–330 мс, на слух лучше (30.09.2026). После ёфикации, длину меняет: tokens/подсветка — по accented. */
+    private val shortWordRe = Regex("^([^\\p{L}]*[бвгджзйклмнпрстфхцчшщ]{1,2}\\+?)([аеёиоуыэюя])(?=[.!?…][^\\p{L}]*$)", RegexOption.IGNORE_CASE)
+    fun stretchShort(accented: String) = if (rules.on("short_word")) shortWordRe.replace(accented, "$1$2$2") else accented
 
     private fun tokenize(sentence: String): Triple<List<String>, List<String>, List<Boolean>> {
         val tokens = ArrayList<String>(); val inputs = ArrayList<String>(); val mask = ArrayList<Boolean>()
