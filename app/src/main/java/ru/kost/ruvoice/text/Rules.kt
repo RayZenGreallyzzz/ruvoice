@@ -68,7 +68,7 @@ class Rules(val off: Set<String> = emptySet(), val maxLen: Int = MAX_LEN_DEFAULT
             "en_proxy_books", "en_proxy_sr",
             "dehyphen", "soft_break", "punct", "ssml",
             "gram", "first_pl", "homo", "accentor", "yo", "hard_e", "prefix_space", "end_dot", "end_oxy", "short_word", "intonation", "focus", "exclaim", "question",
-            "pause_semicolon", "pause_parens", "fast_cores",
+            "pause_semicolon", "pause_parens", "pause_min", "fast_cores",
             "verbose_log",
         )
         /** Ключ, с которого начинается новая секция → её заголовок (rules_section_<имя> в strings.xml). */

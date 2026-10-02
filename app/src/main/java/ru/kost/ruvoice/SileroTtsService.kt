@@ -522,7 +522,19 @@ class SileroTtsService : TextToSpeechService() {
             // непроигранного больше 500 мс), поэтому RTF = синтез / звук показывает, успевает ли телефон.
             val synthMs = java.util.concurrent.atomic.AtomicLong()
             if (callback.start(sr, AudioFormat.ENCODING_PCM_16BIT, 1) != TextToSpeech.SUCCESS) { stopped = true; return }
-            if (rules.on("lead_in") && System.currentTimeMillis() - lastAudioAt > LEAD_GAP_MS) { val sil = Pcm.silence(sr, LEAD_IN_MS); if (!write(callback, sil)) return; written += sil.size; firstAudioAt = 0L }
+            val continuous = System.currentTimeMillis() - lastAudioAt <= LEAD_GAP_MS
+            if (rules.on("lead_in") && !continuous) { val sil = Pcm.silence(sr, LEAD_IN_MS); if (!write(callback, sil)) return; written += sil.size; firstAudioAt = 0L }
+            // Правило pause_min: пауза между предложениями — не меньше заданной. Тишину, которую модель уже оставила
+            // в конце куска, засчитываем и добавляем только остаток; тишину в начале куска после паузы срезаем до
+            // LEAD_KEEP_MS — иначе длина паузы гуляла бы вместе с краями звука модели. Реплику с тире не трогаем:
+            // пауза перед ней намеренная (dashPauseMs). При нулевой паузе предложения правило ничего не меняет.
+            val pauseMin = rules.on("pause_min") && !screenReader && prefs.sentencePauseMs > 0
+            val keep = sr * LEAD_KEEP_MS / 1000
+            fun dash(t: String) = t.trimStart().firstOrNull()?.let { it in "–—-" } == true
+            var cutNext = pauseMin && continuous && !dash(reqText) // срезать тишину в начале следующего звука
+            var owed = 0  // сэмплов паузы, ещё не отданных перед следующим звуком
+            var trail = 0 // тишина в конце последнего отданного звука, сэмплов
+            fun leadCut(pcm: ShortArray) = if (cutNext) (Pcm.silentEdges(pcm).first - keep).coerceAtLeast(0) else 0
             // Короткая фраза уже звучала с теми же голосом, темпом и настройками — отдаём готовый звук.
             // Сбор имён («Проверка») и прослушивание без словаря идут мимо кэша.
             val cacheKey = if (reqText.length <= PhraseCache.MAX_TEXT && !noDict && !auditNames)
@@ -532,9 +544,11 @@ class SileroTtsService : TextToSpeechService() {
             val diskCache = screenReader && baseRules.on("sr_phrase_disk")
             if (screenReader && !diskCache) phrases.clearDisk()
             cacheKey?.let { phrases.get(it, diskCache) }?.let { hit ->
+                // в кэше начало без среза: срез зависит от того, шло ли чтение подряд
+                val cut = leadCut(hit.pcm)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                    for (k in hit.ranges.indices step 3) callback.rangeStart((written + hit.ranges[k]).toInt(), hit.ranges[k + 1], hit.ranges[k + 2])
-                if (!write(callback, hit.pcm)) return
+                    for (k in hit.ranges.indices step 3) callback.rangeStart((written + (hit.ranges[k] - cut).coerceAtLeast(0)).toInt(), hit.ranges[k + 1], hit.ranges[k + 2])
+                if (!write(callback, if (cut > 0) hit.pcm.copyOfRange(cut, hit.pcm.size) else hit.pcm)) return
                 callback.done()
                 note("запрос ${request.charSequenceText.length} симв. из кэша, ${System.currentTimeMillis() - t0} мс, звук ${hit.pcm.size * 1000L / sr} мс" +
                     (caller?.let { ", от ${it.pkg}" + if (screenReader) " (экранный чтец)" else "" } ?: ""))
@@ -686,6 +700,31 @@ class SileroTtsService : TextToSpeechService() {
                     note("заготовка ${text.length} симв.: ${p.futures.size} из ${segs.size} сегм.")
                 }
             } }
+            // Звук куска читалке: сначала недоданная пауза (минус тишина, что осталась в начале звука), потом звук без лишней
+            // тишины в начале; подсветку ([words]: сэмпл от начала звука, начало и конец слова) сдвигаем на срезанное.
+            // Первый звук запроса в кэш фраз — без среза: срез зависит от того, шло ли чтение подряд.
+            var firstAudio = true
+            fun emit(raw: ShortArray, words: List<Triple<Int, Int, Int>>): Boolean {
+                val cut = leadCut(raw)
+                if (pauseMin) {
+                    val pad = owed - (Pcm.silentEdges(raw).first - cut)
+                    if (pad > 0) { val sil = ShortArray(pad); recorder?.audio(sil); if (!write(callback, sil)) return false; written += sil.size }
+                    owed = 0
+                }
+                val pcm = if (cut > 0) raw.copyOfRange(cut, raw.size) else raw
+                val recCut = if (firstAudio) 0 else cut
+                for ((at, s, e) in words) {
+                    recorder?.range((at - recCut).coerceAtLeast(0), s, e)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) callback.rangeStart((written + (at - cut).coerceAtLeast(0)).toInt(), s, e)
+                }
+                recorder?.audio(if (firstAudio) raw else pcm)
+                if (!write(callback, pcm)) return false
+                written += pcm.size
+                audioMs += pcm.size * 1000L / sr
+                trail = if (pauseMin) Pcm.silentEdges(pcm).second else 0
+                cutNext = false; firstAudio = false
+                return true
+            }
             val canPrefetch = !screenReader && !noDict && !auditNames && rules.on("prefetch")
             var next: Future<SegOut?>? = null
             // выход посреди запроса (чтец перебил) — заранее поставленный сегмент не нужен
@@ -695,17 +734,10 @@ class SileroTtsService : TextToSpeechService() {
                 next = if (si + 1 < segments.size) ready(si + 1) ?: synthPool.submit(Callable { unit(segments[si + 1]) })
                     else { if (canPrefetch) { prefetcher = prefetchNext; prefetchNext() }; null }
                 if (res is SegOut.Proxied) {
-                    for ((key, at) in res.words) {
-                        val j = matcher.next(key)
-                        if (j < 0) continue
-                        val pos = Math.round(at * res.pcm.size).toInt()
-                        recorder?.range(pos, srcWords[j].second, srcWords[j].third)
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) callback.rangeStart((written + pos).toInt(), srcWords[j].second, srcWords[j].third)
+                    val words = res.words.mapNotNull { (key, at) ->
+                        matcher.next(key).takeIf { it >= 0 }?.let { j -> Triple(Math.round(at * res.pcm.size).toInt(), srcWords[j].second, srcWords[j].third) }
                     }
-                    recorder?.audio(res.pcm)
-                    if (!write(callback, res.pcm)) return
-                    written += res.pcm.size
-                    audioMs += res.pcm.size * 1000L / sr
+                    if (!emit(res.pcm, words)) return
                 }
                 if (res is SegOut.Model) {
                     val out = res.synth; val tokens = res.tokens
@@ -722,21 +754,21 @@ class SileroTtsService : TextToSpeechService() {
                     val perFrame = pcm.size.toDouble() / out.durs.sum()
                     val cum = DoubleArray(out.durs.size + 1)
                     for (i in out.durs.indices) cum[i + 1] = cum[i] + out.durs[i]
-                    for (t in tokens) {
-                        val j = matcher.next(t.key)
-                        if (j < 0) continue
-                        val at = Math.round(cum[t.seqStart] * perFrame).toInt()
-                        recorder?.range(at, srcWords[j].second, srcWords[j].third)
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) callback.rangeStart((written + at).toInt(), srcWords[j].second, srcWords[j].third)
+                    val words = tokens.mapNotNull { t ->
+                        matcher.next(t.key).takeIf { it >= 0 }?.let { j -> Triple(Math.round(cum[t.seqStart] * perFrame).toInt(), srcWords[j].second, srcWords[j].third) }
                     }
-                    recorder?.audio(pcm)
-                    if (!write(callback, pcm)) return
-                    written += pcm.size
-                    audioMs += pcm.size * 1000L / sr
-                    Log.d(SileroModels.TAG, "unit ${audio.size * 1000L / sr} мс")
+                    val (lead, tail) = Pcm.silentEdges(pcm)
+                    Log.d(SileroModels.TAG, "unit ${audio.size * 1000L / sr} мс, тишина в начале ${lead * 1000L / sr} мс, в конце ${tail * 1000L / sr} мс")
+                    if (!emit(pcm, words)) return
                 }
-                if (seg.breakMs > 0) { val sil = Pcm.silence(sr, seg.breakMs); recorder?.audio(sil); if (!write(callback, sil)) return; written += sil.size }
+                if (seg.breakMs > 0) {
+                    val n = sr * seg.breakMs / 1000
+                    if (pauseMin) { owed += (n - trail).coerceAtLeast(0); trail = 0; cutNext = !dash(segments.getOrNull(si + 1)?.text.orEmpty()) }
+                    else { val sil = ShortArray(n); recorder?.audio(sil); if (!write(callback, sil)) return; written += sil.size }
+                }
             } } finally { next?.cancel(false); pre?.futures?.forEach { it.cancel(false) } }
+            // остаток паузы после последнего куска: тишину в начале следующего запроса срежет он сам
+            if (owed > 0) { val sil = ShortArray(owed); recorder?.audio(sil); if (!write(callback, sil)) return; written += sil.size }
             callback.done()
             pre?.let { synthMs.addAndGet(it.ms.get()) }
             // в кэш — только доведённое до конца: оборванный TalkBack-ом звук был бы неполным
@@ -792,6 +824,8 @@ class SileroTtsService : TextToSpeechService() {
     companion object {
         const val LEAD_GAP_MS = 2500L
         const val LEAD_IN_MS = 300
+        /** Сколько тишины оставить в начале куска после паузы (pause_min): запас перед взрывным согласным. */
+        private const val LEAD_KEEP_MS = 20
         /** Сколько первых сегментов следующего куска считать заранее: дальше успевает конвейер самого запроса. */
         private const val PREFETCH_SEGS = 2
         private const val QUEUED_MAX = 8

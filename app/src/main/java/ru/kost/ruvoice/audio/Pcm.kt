@@ -1,6 +1,7 @@
 package ru.kost.ruvoice.audio
 
 import java.nio.ByteBuffer
+import kotlin.math.abs
 import java.nio.ByteOrder
 
 /** Единственное место, где float становится short. Насыщение, не приведение типа: заворот знака и есть щелчок. */
@@ -113,6 +114,13 @@ object Pcm {
     fun englishGain(match: Float, enVolume: Float, volume: Float): Float = (match * enVolume * volume).coerceIn(0.125f, MAX_GAIN)
 
     fun toFloat(pcm: ShortArray): FloatArray = FloatArray(pcm.size) { pcm[it] / 32767f }
+
+    /** Тишина по краям звука, в сэмплах: до первого и после последнего сэмпла громче [floor] (−40 дБ). Весь звук тихий — (size, 0). */
+    fun silentEdges(pcm: ShortArray, floor: Int = 328): Pair<Int, Int> {
+        val a = pcm.indexOfFirst { abs(it.toInt()) > floor }
+        if (a < 0) return pcm.size to 0
+        return a to pcm.size - 1 - pcm.indexOfLast { abs(it.toInt()) > floor }
+    }
 
     fun silence(sampleRate: Int, ms: Int): ShortArray = ShortArray(maxOf(0, sampleRate * ms / 1000))
 

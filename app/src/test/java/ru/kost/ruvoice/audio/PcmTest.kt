@@ -39,4 +39,10 @@ class PcmTest {
         val b = Pcm.toBytes(shortArrayOf(0x1234, -1))
         assertArrayEquals(byteArrayOf(0x34, 0x12, -1, -1), b)
     }
+
+    @Test fun silentEdges() {
+        val pcm = ShortArray(10).also { it[3] = 1000; it[6] = -1000; it[8] = 100 }
+        assertEquals(3 to 3, Pcm.silentEdges(pcm))
+        assertEquals(4 to 0, Pcm.silentEdges(ShortArray(4)))
+    }
 }
