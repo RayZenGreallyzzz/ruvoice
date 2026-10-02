@@ -204,10 +204,12 @@ class Replacements private constructor(private val rules: List<Rule>, private va
                 }
                 out
             }) { done -> onProgress?.invoke(done / 2) }
-            // одинаковый ключ дважды — побеждает последняя строка: правку дописывают в конец списка
+            // одинаковый ключ дважды — побеждает последняя строка: правку дописывают в конец списка.
+            // Ключ без «~» и «$» сравнивается без регистра: так он и матчит («Ворон» в своём списке перебивает «ворон» системного)
             run {
+                fun same(k: String) = if (k.startsWith("~") || (k.length > 1 && k[0] == '$' && k[1] != '$')) k else k.lowercase()
                 val seen = HashSet<String>(pairs.size * 2); var w = pairs.size
-                for (i in pairs.indices.reversed()) if (seen.add(pairs[i].first)) pairs[--w] = pairs[i]
+                for (i in pairs.indices.reversed()) if (seen.add(same(pairs[i].first))) pairs[--w] = pairs[i]
                 pairs.subList(0, w).clear()
             }
             pairs.sortWith { a, b -> b.first.length - a.first.length }

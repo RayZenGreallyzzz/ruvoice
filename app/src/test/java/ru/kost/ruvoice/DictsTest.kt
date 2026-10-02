@@ -91,6 +91,23 @@ class DictsTest {
         assertEquals("амбарный з+амок", DictCache.replacements(Dicts.files(root, Dicts.Kind.REPLACE)).apply("амбарный замок"))
     }
 
+    /** Свои списки перебивают и системный другого вида: своё слово в ударениях снимает системную замену с ним
+     * (иначе её «+» заставит словарь ударений слово пропустить), своя однословная замена — системную фразу с этим словом. */
+    @Test fun userListsOverrideSystemAcrossKinds() {
+        val root = tmp.root
+        for (kind in Dicts.Kind.values()) Dicts.dir(root, kind).mkdirs()
+        Dicts.file(root, Dicts.Kind.STRESS, Dicts.SYSTEM).writeText("")
+        Dicts.file(root, Dicts.Kind.STRESS, Dicts.MAIN).writeText("потом пот+ом\n")
+        Dicts.file(root, Dicts.Kind.REPLACE, Dicts.SYSTEM).writeText(
+            "потом = п+отом\nобливаясь потом = обливаясь п+отом\nстарый замок = старый зам+ок\nворон = в+орон\nкот = к+от\n")
+        Dicts.file(root, Dicts.Kind.REPLACE, Dicts.MAIN).writeText("замок = з+амок\nВорон = вор+он\n")
+        val r = DictCache.replacements(Dicts.files(root, Dicts.Kind.REPLACE), stress = Dicts.files(root, Dicts.Kind.STRESS))
+        assertEquals("обливаясь потом", r.apply("обливаясь потом"))
+        assertEquals("старый з+амок", r.apply("старый замок"))
+        assertEquals("вор+он", r.apply("ворон"))
+        assertEquals("к+от", r.apply("кот"))
+    }
+
     @Test fun systemDictsFromAssetsParse() {
         // ударения: «слово сл+ово»; замены: «фраза = фраза с ударением», слово с «+» входит в ключ (ё-вариант — «все же = вс+ё же»)
         val stress = TestData.root().resolve("app/src/main/assets/dicts/stress/Системный.txt").readLines()

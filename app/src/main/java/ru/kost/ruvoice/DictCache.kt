@@ -52,13 +52,36 @@ object DictCache {
         return map.also { stressSnap = Snap(s, it) }
     }
 
-    /** Слияние включённых списков замен: строки всех файлов подряд, дальше Replacements.parse. */
-    fun replacements(files: List<File>, onProgress: ((Int) -> Unit)? = null): Replacements = synchronized(replaceLock) {
-        val s = sig(files)
+    private val wordRe = Regex("[\\p{L}\\d]+")
+
+    /** Слова, о которых пользователь сказал сам: ключи своих списков ударений и однословные ключи своих замен. */
+    private fun userWords(replace: List<File>, stress: List<File>): Set<String> {
+        val out = HashSet<String>()
+        for (f in stress) if (!Dicts.isSystem(Dicts.name(f))) f.forEachLine { l -> DictLines.parseStress(l)?.let { out += it.first.lowercase() } }
+        for (f in replace) if (!Dicts.isSystem(Dicts.name(f))) f.forEachLine { l ->
+            val k = Replacements.split(l)?.first?.removePrefix("$")?.lowercase() ?: return@forEachLine
+            if (!k.startsWith("~") && wordRe.matches(k)) out += k
+        }
+        return out
+    }
+
+    /** Слияние включённых списков замен: строки всех файлов подряд, дальше Replacements.parse.
+     * stress — включённые списки ударений: строка системных замен, в ключе которой слово из своего списка ударений
+     * или своей однословной замены, выбрасывается — иначе «потом = п+отом» ставит «+», и словарь ударений слово
+     * пропускает, а длинная системная фраза срабатывает раньше короткой своей замены. */
+    fun replacements(files: List<File>, onProgress: ((Int) -> Unit)? = null, stress: List<File> = emptyList()): Replacements = synchronized(replaceLock) {
+        val s = sig(files) + sig(stress)
         replaceSnap?.takeIf { it.sig == s }?.let { return it.value }
         // 62k строк: ~80 мс чтение + ~350–700 мс разбор на среднем телефоне (аллокации на ART)
         val t = System.nanoTime()
-        val lines = files.flatMap { it.readLines() }
+        val user = userWords(files, stress)
+        val lines = files.flatMap { f ->
+            if (user.isEmpty() || Dicts.name(f) != Dicts.SYSTEM) f.readLines()
+            else f.readLines().filter { l ->
+                val k = Replacements.split(l)?.first ?: return@filter true
+                k.startsWith("~") || wordRe.findAll(k.lowercase()).none { it.value in user }
+            }
+        }
         val r = Replacements.parse(lines, onProgress?.let { cb -> { done -> cb(if (lines.isEmpty()) 100 else done * 100 / lines.size) } })
         android.util.Log.i("RuVoice", "словари замен: ${lines.size} строк, ${(System.nanoTime() - t) / 1_000_000} мс")
         return r.also { replaceSnap = Snap(s, it) }
@@ -66,9 +89,9 @@ object DictCache {
 
     /** Пересобрать снимок в фоне; колбэки зовутся из фонового потока. Возвращает поток —
      * тестам есть что join-ить, UI это не нужно. */
-    fun warm(files: List<File>, kind: Dicts.Kind, onProgress: (Int) -> Unit, onDone: () -> Unit): Thread =
+    fun warm(files: List<File>, kind: Dicts.Kind, onProgress: (Int) -> Unit, onDone: () -> Unit, stressFiles: List<File> = emptyList()): Thread =
         Thread {
-            try { if (kind == Dicts.Kind.STRESS) stress(files, onProgress) else replacements(files, onProgress) }
+            try { if (kind == Dicts.Kind.STRESS) stress(files, onProgress) else replacements(files, onProgress, stressFiles) }
             catch (e: Exception) { /* битый файл — сервис получит то же исключение при синтезе, тут молчим */ }
             onDone()
         }.apply { start() }

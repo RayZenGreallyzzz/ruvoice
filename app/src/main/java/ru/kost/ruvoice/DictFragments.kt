@@ -341,7 +341,8 @@ abstract class DictListFragment(layout: Int) : PageFragment(layout) {
         DictCache.warm(prefs.enabledDictFiles(kind), kind,
             // фрагмент могли закрыть, пока грелось — getString без контекста упадёт
             { pct -> handler.post { if (isAdded) { bar.progress = pct; text.text = getString(R.string.dict_cache, pct) } } },
-            { handler.post { handler.removeCallbacks(show); row.visibility = View.GONE } })
+            { handler.post { handler.removeCallbacks(show); row.visibility = View.GONE } },
+            if (kind == Dicts.Kind.REPLACE) prefs.enabledDictFiles(Dicts.Kind.STRESS) else emptyList())
     }
 
     // ---- меню списка ----
