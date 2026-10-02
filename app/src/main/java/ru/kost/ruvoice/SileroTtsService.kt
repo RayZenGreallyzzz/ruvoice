@@ -7,7 +7,11 @@ import android.content.pm.ServiceInfo
 import android.os.PowerManager
 import android.os.Build
 import android.media.AudioFormat
+import android.content.Intent
+import android.os.Binder
 import android.os.Handler
+import android.os.IBinder
+import android.os.Parcel
 import android.os.Looper
 import android.speech.tts.SynthesisCallback
 import android.speech.tts.SynthesisRequest
@@ -15,6 +19,7 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.TextToSpeechService
 import android.speech.tts.Voice
 import android.text.Spanned
+import android.text.TextUtils
 import android.text.style.TtsSpan
 import android.util.Log
 import ru.kost.ruvoice.audio.Pcm
@@ -211,6 +216,18 @@ class SileroTtsService : TextToSpeechService() {
      * когда новый запрос снова сбросил [stopped]. Иначе он занимал бы synthPool (английский — до срока ожидания
      * движка) и новая фраза чтеца стояла бы за ним в тишине. */
     @Volatile private var generation = 0
+    /** Куски, поставленные читалками в очередь (uid, текст), которые фреймворк ещё не отдал в onSynthesizeText. */
+    private val queued = ArrayDeque<Pair<Int, String>>()
+    /** Начало следующего куска, посчитанное заранее: сегменты в synthPool, [key] — текст и настройки, с которыми считали. */
+    private class Prefetch(val key: String, val texts: List<String>) {
+        val futures = ArrayList<Future<SegOut?>>()
+        val ms = java.util.concurrent.atomic.AtomicLong()
+        @Volatile var dead = false
+    }
+    private var prefetch: Prefetch? = null // под замком queued
+    /** Ставит запрос, отдавший последний сегмент: заготовить следующий кусок своей читалки. Binder зовёт его,
+     * когда кусок пришёл позже. */
+    @Volatile private var prefetcher: (() -> Unit)? = null
     private var foreground = false
     // Аудиовыход телефона уходит в standby через ~3 с тишины, а после пробуждения HAL плавно
     // поднимает громкость — первое слово фразы выходит тихим. Если с прошлого звука прошло
@@ -390,7 +407,46 @@ class SileroTtsService : TextToSpeechService() {
     override fun onGetDefaultVoiceNameFor(lang: String?, country: String?, variant: String?): String =
         if (lang == "eng" && englishReady()) EN_VOICE else Speaker.ttsName(currentName() ?: Speaker.DEFAULT)
 
-    override fun onStop() { stopped = true }
+    override fun onStop() { stopped = true; synchronized(queued) { queued.clear(); dropPrefetch() } }
+
+    // Очередь фреймворка отдаёт следующий кусок только после возврата текущего запроса — за ~0,5 с до конца его звука.
+    // Читалка (AlReaderX и др.) ставит следующий кусок через QUEUE_ADD раньше, и через binder мы видим его сразу:
+    // запоминаем, чтобы запрос, досчитавший свои сегменты, заранее посчитал начало следующего (правило prefetch).
+    // speak — первый метод скрытого ITextToSpeechService; не разобрали — работаем как без заготовки.
+    override fun onBind(intent: Intent?): IBinder? {
+        val inner = super.onBind(intent) ?: return null
+        return object : Binder() {
+            override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
+                val text = if (code == FIRST_CALL_TRANSACTION) speakText(data) else null
+                val mode = if (text != null) data.readInt() else 0
+                data.setDataPosition(0)
+                val uid = getCallingUid()
+                // после transact: QUEUE_FLUSH внутри него зовёт onStop, а тот чистит очередь
+                return inner.transact(code, data, reply, flags).also { if (text != null) queuedSpeak(uid, text, mode) }
+            }
+        }
+    }
+
+    private fun speakText(data: Parcel): CharSequence? = runCatching {
+        data.enforceInterface("android.speech.tts.ITextToSpeechService")
+        data.readStrongBinder()
+        if (data.readInt() != 0) TextUtils.CHAR_SEQUENCE_CREATOR.createFromParcel(data) else null
+    }.getOrNull()
+
+    private fun queuedSpeak(uid: Int, text: CharSequence, mode: Int) {
+        synchronized(queued) {
+            if (mode == TextToSpeech.QUEUE_FLUSH) { queued.clear(); dropPrefetch() }
+            queued.addLast(uid to text.toString())
+            while (queued.size > QUEUED_MAX) queued.removeFirst()
+        }
+        prefetcher?.invoke()
+    }
+
+    /** Под замком queued. */
+    private fun dropPrefetch() {
+        prefetch?.let { p -> p.dead = true; p.futures.forEach { it.cancel(false) } }
+        prefetch = null
+    }
 
     /** Текст запроса с подставленными TtsSpan (SpanSay): TYPE_TEXT пунктуации TalkBack, телефоны,
      * время, даты, деньги, «по цифрам» и прочие размеченные приложением куски. */
@@ -410,6 +466,9 @@ class SileroTtsService : TextToSpeechService() {
         stopped = false
         val gen = ++generation
         fun gone() = stopped || gen != generation
+        prefetcher = null
+        val rawText = request.charSequenceText?.toString().orEmpty()
+        synchronized(queued) { repeat(queued.indexOfFirst { it.second == rawText } + 1) { queued.removeFirst() } }
         handler.removeCallbacks(unload)
         handler.removeCallbacks(fgOff)
         // Поднимаем сразу: при погасшем экране система запрещает старт foreground-сервиса из фона
@@ -509,8 +568,16 @@ class SileroTtsService : TextToSpeechService() {
             val askedEnglish = request.language == "eng" || request.voiceName == EN_VOICE
             val enWords = if (enEngine == null) 0 else if (askedEnglish) English.MIN_WORDS
                 else (if (screenReader) prefs.enMinWordsSr else prefs.enMinWords).coerceIn(English.MIN_WORDS, English.MAX_WORDS)
-            val segments = Pipeline.plan(reqText, d, if (noPauses) 0 else prefs.sentencePauseMs, if (noPauses) 0 else prefs.paragraphPauseMs, replacements, rules, enWords,
+            fun planOf(t: String) = Pipeline.plan(t, d, if (noPauses) 0 else prefs.sentencePauseMs, if (noPauses) 0 else prefs.paragraphPauseMs, replacements, rules, enWords,
                 maxOf(prefs.commaPauseMs, English.JOIN_MS))
+            val segments = planOf(reqText)
+            // заготовка годится, если считана с тем же голосом, высотой и настройками; темп и громкость — при отдаче
+            fun keyOf(t: String) = listOf(prefs.stamp(), prefs.dictStamp(), wantedName, packs().joinToString(",") { "${it.id}:${java.io.File(it.dir, "pack.json").lastModified()}" },
+                sr, pitch, askedEnglish, screenReader, t).joinToString("\u0001")
+            val reqKey = keyOf(reqText)
+            val pre = synchronized(queued) {
+                prefetch?.takeIf { it.key == reqKey && !it.dead }.also { if (it == null) dropPrefetch() else prefetch = null }
+            }
             // Паузы после запятой и на тире — явная длительность самого знака в кадрах модели (Marks.frames);
             // ноль — как решит модель. Дефис/минус в пробелах Normalizer.punctuation уже свёл к «–».
             val pauseFrames = HashMap<Int, Long>()
@@ -545,8 +612,8 @@ class SileroTtsService : TextToSpeechService() {
                 return SegOut.Proxied(Pcm.toPcm16(audio), nonSpace.findAll(text).map { Marks.key(it.value) to it.range.first.toDouble() / text.length }.toList())
             }
             // Звук сегмента и токены для подсветки; null — нечего читать или синтез упал.
-            fun synthSegment(seg: Segment): SegOut.Model? {
-                if (gone()) return null
+            fun synthSegment(seg: Segment, dead: () -> Boolean = { gone() }, acc: java.util.concurrent.atomic.AtomicLong = synthMs): SegOut.Model? {
+                if (dead()) return null
                 val tSeg = System.currentTimeMillis()
                 try {
                 // Замены Pipeline.plan уже применил к seg.text; тип предложения классифицируется
@@ -586,7 +653,7 @@ class SileroTtsService : TextToSpeechService() {
                         Log.e(SileroModels.TAG, "синтез не удался: «${seg.text.take(60)}»", e); null
                     }
                 }
-                } finally { synthMs.addAndGet(System.currentTimeMillis() - tSeg) }
+                } finally { acc.addAndGet(System.currentTimeMillis() - tSeg) }
             }
             // Сегмент N+1 считается, пока звук сегмента N уходит плееру: audioAvailable блокирует,
             // пока непроигранного звука больше 500 мс (SynthesisPlaybackQueueItem), и без опережения
@@ -601,12 +668,32 @@ class SileroTtsService : TextToSpeechService() {
                 }
                 return synthSegment(seg)
             }
+            // сегмент из заготовки, если она посчитана для этого же сегмента
+            fun ready(i: Int) = pre?.takeIf { i < it.futures.size && it.texts[i] == segments[i].text }?.futures?.get(i)
+            // Свои сегменты все в работе — заранее считаем начало следующего куска той же читалки, пока звучат наши.
+            // Английские сегменты не заготавливаем: чужой движок ждёт своей очереди.
+            val prefetchNext = { synchronized(queued) {
+                val t = queued.firstOrNull { it.first == request.callerUid }?.second
+                if (prefetch == null && t != null) {
+                    val text = spokenText(t).text
+                    val segs = planOf(text)
+                    val p = Prefetch(keyOf(text), segs.map { it.text })
+                    for (s in segs.take(PREFETCH_SEGS)) {
+                        if (s.en && enEngine != null) break
+                        p.futures += synthPool.submit(Callable<SegOut?> { synthSegment(s, { p.dead }, p.ms) })
+                    }
+                    prefetch = p
+                    note("заготовка ${text.length} симв.: ${p.futures.size} из ${segs.size} сегм.")
+                }
+            } }
+            val canPrefetch = !screenReader && !noDict && !auditNames && rules.on("prefetch")
             var next: Future<SegOut?>? = null
             // выход посреди запроса (чтец перебил) — заранее поставленный сегмент не нужен
             try { for ((si, seg) in segments.withIndex()) {
                 if (stopped) { next?.cancel(false); break }
-                val res = (next ?: synthPool.submit(Callable { unit(seg) })).get()
-                next = if (si + 1 < segments.size) synthPool.submit(Callable { unit(segments[si + 1]) }) else null
+                val res = (next ?: ready(si) ?: synthPool.submit(Callable { unit(seg) })).get()
+                next = if (si + 1 < segments.size) ready(si + 1) ?: synthPool.submit(Callable { unit(segments[si + 1]) })
+                    else { if (canPrefetch) { prefetcher = prefetchNext; prefetchNext() }; null }
                 if (res is SegOut.Proxied) {
                     for ((key, at) in res.words) {
                         val j = matcher.next(key)
@@ -649,8 +736,9 @@ class SileroTtsService : TextToSpeechService() {
                     Log.d(SileroModels.TAG, "unit ${audio.size * 1000L / sr} мс")
                 }
                 if (seg.breakMs > 0) { val sil = Pcm.silence(sr, seg.breakMs); recorder?.audio(sil); if (!write(callback, sil)) return; written += sil.size }
-            } } finally { next?.cancel(false) }
+            } } finally { next?.cancel(false); pre?.futures?.forEach { it.cancel(false) } }
             callback.done()
+            pre?.let { synthMs.addAndGet(it.ms.get()) }
             // в кэш — только доведённое до конца: оборванный TalkBack-ом звук был бы неполным
             if (recorder != null && cacheKey != null && !stopped && !enFallback && audioMs > 0) phrases.put(cacheKey, recorder.entry(), diskCache)
             audit.flush()
@@ -658,6 +746,7 @@ class SileroTtsService : TextToSpeechService() {
             note("запрос ${request.charSequenceText.length} симв., ${segments.size} сегм., $ms мс" +
                 (if (firstAudioAt > 0) ", первый звук через ${firstAudioAt - t0} мс" else "") + ", звук $audioMs мс, синтез ${synthMs.get()} мс" +
                 (if (audioMs > 0) ", RTF %.2f".format(synthMs.get().toDouble() / audioMs) else "") +
+                (if (pre != null) ", из заготовки ${pre.futures.size} сегм." else "") +
                 (if (!foreground) ", без foreground" else "") +
                 (if (enCount > 0) ", по-английски $enCount через ${enEngine?.pkg}" else "") +
                 (caller?.let { ", от ${it.pkg}" + if (screenReader) " (экранный чтец)" else "" } ?: ""))
@@ -703,6 +792,9 @@ class SileroTtsService : TextToSpeechService() {
     companion object {
         const val LEAD_GAP_MS = 2500L
         const val LEAD_IN_MS = 300
+        /** Сколько первых сегментов следующего куска считать заранее: дальше успевает конвейер самого запроса. */
+        private const val PREFETCH_SEGS = 2
+        private const val QUEUED_MAX = 8
         /** Потолок темпа для экранного чтеца: TalkBack шлёт до ×6. Книгам — ×3, как раньше. */
         // TtsSpan → короткие имена SpanSay (без префиксов android.type./android.arg.)
         private val spanTypes = mapOf(TtsSpan.TYPE_TEXT to "text", TtsSpan.TYPE_CARDINAL to "cardinal",

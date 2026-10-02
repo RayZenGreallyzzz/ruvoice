@@ -61,7 +61,7 @@ class Rules(val off: Set<String> = emptySet(), val maxLen: Int = MAX_LEN_DEFAULT
          * за ней «Разное» — для настроек без своего раздела. */
         val KEYS = listOf(
             "sr_fast_start", "sr_symbols", "sr_link_word", "sr_quote_off", "sr_lead_in_off", "sr_pauses_off", "sr_keep_loaded", "sr_phrase_disk",
-            "symbol_names", "emoji", "letter_name", "letter_echo_all", "lead_in", "fast_start", "drop_links", "link_domain", "drop_emails", "read_links",
+            "symbol_names", "emoji", "letter_name", "letter_echo_all", "lead_in", "fast_start", "prefetch", "drop_links", "link_domain", "drop_emails", "read_links",
             "phones", "codes", "numbers", "arith", "cases", "roman", "roman_name", "dates", "day_month", "years", "times", "units",
             "degrees", "currency", "fractions", "spoons", "gen_suffix", "sections", "thousands", "footnotes",
             "abbrev", "spell_cyr", "spell_lat", "letter_digit", "latin", "homoglyphs",
