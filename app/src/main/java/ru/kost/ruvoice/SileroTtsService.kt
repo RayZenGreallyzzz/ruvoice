@@ -219,15 +219,17 @@ class SileroTtsService : TextToSpeechService() {
     /** Куски, поставленные читалками в очередь (uid, текст), которые фреймворк ещё не отдал в onSynthesizeText. */
     private val queued = ArrayDeque<Pair<Int, String>>()
     /** Начало следующего куска, посчитанное заранее: сегменты в synthPool, [key] — текст и настройки, с которыми считали. */
-    private class Prefetch(val key: String, val texts: List<String>) {
+    private class Prefetch(val uid: Int, val key: String, val texts: List<String>) {
         val futures = ArrayList<Future<SegOut?>>()
         val ms = java.util.concurrent.atomic.AtomicLong()
         @Volatile var dead = false
     }
     private var prefetch: Prefetch? = null // под замком queued
-    /** Ставит запрос, отдавший последний сегмент: заготовить следующий кусок своей читалки. Binder зовёт его,
-     * когда кусок пришёл позже. */
-    @Volatile private var prefetcher: (() -> Unit)? = null
+    /** Ставит запрос, отдавший последний сегмент (uid читалки и как заготовить её следующий кусок). Binder зовёт его,
+     * когда кусок этой читалки пришёл позже. */
+    @Volatile private var prefetcher: Pair<Int, () -> Unit>? = null
+    /** uid приложения, чей запрос сейчас в onSynthesizeText: onStop фреймворк зовёт для текущего запроса. */
+    @Volatile private var currentUid = -1
     private var foreground = false
     // Аудиовыход телефона уходит в standby через ~3 с тишины, а после пробуждения HAL плавно
     // поднимает громкость — первое слово фразы выходит тихим. Если с прошлого звука прошло
@@ -407,7 +409,7 @@ class SileroTtsService : TextToSpeechService() {
     override fun onGetDefaultVoiceNameFor(lang: String?, country: String?, variant: String?): String =
         if (lang == "eng" && englishReady()) EN_VOICE else Speaker.ttsName(currentName() ?: Speaker.DEFAULT)
 
-    override fun onStop() { stopped = true; synchronized(queued) { queued.clear(); dropPrefetch() } }
+    override fun onStop() { stopped = true; synchronized(queued) { forgetApp(currentUid) } }
 
     // Очередь фреймворка отдаёт следующий кусок только после возврата текущего запроса — за ~0,5 с до конца его звука.
     // Читалка (AlReaderX и др.) ставит следующий кусок через QUEUE_ADD раньше, и через binder мы видим его сразу:
@@ -435,11 +437,18 @@ class SileroTtsService : TextToSpeechService() {
 
     private fun queuedSpeak(uid: Int, text: CharSequence, mode: Int) {
         synchronized(queued) {
-            if (mode == TextToSpeech.QUEUE_FLUSH) { queued.clear(); dropPrefetch() }
+            // QUEUE_FLUSH сбрасывает только очередь этого приложения (stopForApp): фраза TalkBack книгу не трогает
+            if (mode == TextToSpeech.QUEUE_FLUSH) forgetApp(uid)
             queued.addLast(uid to text.toString())
             while (queued.size > QUEUED_MAX) queued.removeFirst()
         }
-        prefetcher?.invoke()
+        prefetcher?.let { (u, f) -> if (u == uid) f() }
+    }
+
+    /** Под замком queued: приложение сбросило очередь — его куски и заготовка больше не придут. */
+    private fun forgetApp(uid: Int) {
+        queued.removeAll { it.first == uid }
+        if (prefetch?.uid == uid) dropPrefetch()
     }
 
     /** Под замком queued. */
@@ -466,7 +475,8 @@ class SileroTtsService : TextToSpeechService() {
         stopped = false
         val gen = ++generation
         fun gone() = stopped || gen != generation
-        prefetcher = null
+        currentUid = request.callerUid
+        if (prefetcher?.first == request.callerUid) prefetcher = null
         val rawText = request.charSequenceText?.toString().orEmpty()
         synchronized(queued) { repeat(queued.indexOfFirst { it.second == rawText } + 1) { queued.removeFirst() } }
         handler.removeCallbacks(unload)
@@ -588,10 +598,10 @@ class SileroTtsService : TextToSpeechService() {
             // заготовка годится, если считана с тем же голосом, высотой и настройками; темп и громкость — при отдаче
             fun keyOf(t: String) = listOf(prefs.stamp(), prefs.dictStamp(), wantedName, packs().joinToString(",") { "${it.id}:${java.io.File(it.dir, "pack.json").lastModified()}" },
                 sr, pitch, askedEnglish, screenReader, t).joinToString("\u0001")
-            val reqKey = keyOf(reqText)
-            val pre = synchronized(queued) {
+            // запрос экранного чтеца заготовку книги не трогает и ключ не считает: файлы словарей — лишние мс на жест
+            val pre = if (screenReader) null else keyOf(reqText).let { reqKey -> synchronized(queued) {
                 prefetch?.takeIf { it.key == reqKey && !it.dead }.also { if (it == null) dropPrefetch() else prefetch = null }
-            }
+            } }
             // Паузы после запятой и на тире — явная длительность самого знака в кадрах модели (Marks.frames);
             // ноль — как решит модель. Дефис/минус в пробелах Normalizer.punctuation уже свёл к «–».
             val pauseFrames = HashMap<Int, Long>()
@@ -691,7 +701,7 @@ class SileroTtsService : TextToSpeechService() {
                 if (prefetch == null && t != null) {
                     val text = spokenText(t).text
                     val segs = planOf(text)
-                    val p = Prefetch(keyOf(text), segs.map { it.text })
+                    val p = Prefetch(request.callerUid, keyOf(text), segs.map { it.text })
                     for (s in segs.take(PREFETCH_SEGS)) {
                         if (s.en && enEngine != null) break
                         p.futures += synthPool.submit(Callable<SegOut?> { synthSegment(s, { p.dead }, p.ms) })
@@ -732,7 +742,7 @@ class SileroTtsService : TextToSpeechService() {
                 if (stopped) { next?.cancel(false); break }
                 val res = (next ?: ready(si) ?: synthPool.submit(Callable { unit(seg) })).get()
                 next = if (si + 1 < segments.size) ready(si + 1) ?: synthPool.submit(Callable { unit(segments[si + 1]) })
-                    else { if (canPrefetch) { prefetcher = prefetchNext; prefetchNext() }; null }
+                    else { if (canPrefetch) { prefetcher = request.callerUid to prefetchNext; prefetchNext() }; null }
                 if (res is SegOut.Proxied) {
                     val words = res.words.mapNotNull { (key, at) ->
                         matcher.next(key).takeIf { it >= 0 }?.let { j -> Triple(Math.round(at * res.pcm.size).toInt(), srcWords[j].second, srcWords[j].third) }
