@@ -828,7 +828,9 @@ class SileroTtsService : TextToSpeechService() {
         private const val LEAD_KEEP_MS = 20
         /** Сколько первых сегментов следующего куска считать заранее: дальше успевает конвейер самого запроса. */
         private const val PREFETCH_SEGS = 2
-        private const val QUEUED_MAX = 8
+        /** Moon+ ставит в очередь всю страницу разом, строкой на предложение: предел — только от утечки, если
+         * куски так и не дойдут до onSynthesizeText. */
+        private const val QUEUED_MAX = 1000
         /** Потолок темпа для экранного чтеца: TalkBack шлёт до ×6. Книгам — ×3, как раньше. */
         // TtsSpan → короткие имена SpanSay (без префиксов android.type./android.arg.)
         private val spanTypes = mapOf(TtsSpan.TYPE_TEXT to "text", TtsSpan.TYPE_CARDINAL to "cardinal",
