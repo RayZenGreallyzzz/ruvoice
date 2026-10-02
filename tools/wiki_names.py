@@ -134,7 +134,7 @@ def build(min_n, min_form):
     common = set()  # формы AOT, у которых есть разбор не-имени
     for line in open(os.path.join(ROOT, 'app/build/aot_forms.tsv'), encoding='utf-8'):
         f, *vs = line.rstrip('\n').split('\t')
-        if any(not set(a.split(':')[-1].split(',')) & {'name', 'surname', 'patr', 'loc', 'org'} for t in vs for a in t.split('|')): common.add(f)
+        if any(not set(a.split(':')[-1].split(',')) & {'name', 'surname', 'patr', 'loc', 'org'} for t in vs for a in t.split('|')): common |= {f, f.replace('ё', 'е')}  # «котел» — это «котёл», не «К+отел» (отчёт пользователя 02.10.2026)
     arbiter = collections.defaultdict(set)  # форма → ударения по AOT и Викисловарю (с именами): расходятся с нашим — не берём («Руси» от «Руса» против Рус+и)
     for name in ('aot_forms.tsv', 'wikt_forms.tsv'):
         for line in open(os.path.join(ROOT, 'app/build', name), encoding='utf-8'):

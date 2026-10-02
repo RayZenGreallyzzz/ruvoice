@@ -143,6 +143,15 @@ class RulesOffTest {
         assertTrue(st.apply(repl.apply("сказали, что эта каюта теперь моя, показали, как с помощью")).contains(" мо+я,"))
     }
 
+    /** Имена из Википедии через «е» не перебивают нарицательные с «ё»: «К+отел» — город, «котел» в книге — «котёл»
+     * (отчёт пользователя 02.10.2026, tools/wiki_names.py). */
+    @Test fun systemDictKeepsYo() {
+        val stress = java.io.File(TestData.root(), "app/src/main/assets/dicts/stress/Системный.txt").readLines().mapNotNull { DictLines.parseStress(it) }.toMap()
+        val yo = java.io.File(TestData.root(), "app/src/main/assets/eyo_safe.txt").bufferedReader().useLines { YoDict(it) }
+        val st = Stress(d, firstVowel, stress, off("gram"), yo = yo)
+        assertEquals("св+ет, +испускаемый фонар+ём, +и кот+ёл.", st.apply("свет, испускаемый фонарем, и котел."))
+    }
+
     /** Дефис после безударной приставки модель слышит пробелом; текст для подсветки не меняется. */
     @Test fun prefixHyphenForModel() {
         val stress = Stress(d, firstVowel, rules = off("homo", "gram"))
