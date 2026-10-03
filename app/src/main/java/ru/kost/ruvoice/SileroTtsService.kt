@@ -11,6 +11,7 @@ import android.content.Intent
 import android.os.Binder
 import android.os.Handler
 import android.os.IBinder
+import android.os.IInterface
 import android.os.Parcel
 import android.os.Looper
 import android.speech.tts.SynthesisCallback
@@ -418,6 +419,9 @@ class SileroTtsService : TextToSpeechService() {
     override fun onBind(intent: Intent?): IBinder? {
         val inner = super.onBind(intent) ?: return null
         return object : Binder() {
+            // свой процесс (проба голоса) берёт настоящий stub; у пустого Binder дескриптор null,
+            // и queryLocalInterface на Android 6 падает в mDescriptor.equals
+            override fun queryLocalInterface(descriptor: String): IInterface? = inner.queryLocalInterface(descriptor)
             override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
                 val text = if (code == FIRST_CALL_TRANSACTION) speakText(data) else null
                 val mode = if (text != null) data.readInt() else 0
