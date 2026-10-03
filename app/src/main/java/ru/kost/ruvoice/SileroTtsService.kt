@@ -218,7 +218,7 @@ class SileroTtsService : TextToSpeechService() {
      * движка) и новая фраза чтеца стояла бы за ним в тишине. */
     @Volatile private var generation = 0
     /** Куски, поставленные читалками в очередь (uid, текст), которые фреймворк ещё не отдал в onSynthesizeText. */
-    private val queued = ArrayDeque<Pair<Int, String>>()
+    private val queued = ArrayDeque<Pair<Int, CharSequence>>() // со спанами: заготовка читает их, как сам запрос
     /** Начало следующего куска, посчитанное заранее: сегменты в synthPool, [key] — текст и настройки, с которыми считали. */
     private class Prefetch(val uid: Int, val key: String, val texts: List<String>) {
         val futures = ArrayList<Future<SegOut?>>()
@@ -433,17 +433,11 @@ class SileroTtsService : TextToSpeechService() {
         }
     }
 
-    private fun speakText(data: Parcel): CharSequence? = runCatching {
-        data.enforceInterface("android.speech.tts.ITextToSpeechService")
-        data.readStrongBinder()
-        if (data.readInt() != 0) TextUtils.CHAR_SEQUENCE_CREATOR.createFromParcel(data) else null
-    }.getOrNull()
-
     private fun queuedSpeak(uid: Int, text: CharSequence, mode: Int) {
         synchronized(queued) {
             // QUEUE_FLUSH сбрасывает только очередь этого приложения (stopForApp): фраза TalkBack книгу не трогает
             if (mode == TextToSpeech.QUEUE_FLUSH) forgetApp(uid)
-            queued.addLast(uid to text.toString())
+            queued.addLast(uid to text)
             while (queued.size > QUEUED_MAX) queued.removeFirst()
         }
         prefetcher?.let { (u, f) -> if (u == uid) f() }
@@ -482,7 +476,7 @@ class SileroTtsService : TextToSpeechService() {
         currentUid = request.callerUid
         if (prefetcher?.first == request.callerUid) prefetcher = null
         val rawText = request.charSequenceText?.toString().orEmpty()
-        synchronized(queued) { repeat(queued.indexOfFirst { it.second == rawText } + 1) { queued.removeFirst() } }
+        synchronized(queued) { repeat(queued.indexOfFirst { it.second.toString() == rawText } + 1) { queued.removeFirst() } }
         handler.removeCallbacks(unload)
         handler.removeCallbacks(fgOff)
         // Поднимаем сразу: при погасшем экране система запрещает старт foreground-сервиса из фона
@@ -836,6 +830,13 @@ class SileroTtsService : TextToSpeechService() {
     }
 
     companion object {
+        /** Текст из speak скрытого ITextToSpeechService, со спанами; null — не разобрали. */
+        internal fun speakText(data: Parcel): CharSequence? = runCatching {
+            data.enforceInterface("android.speech.tts.ITextToSpeechService")
+            data.readStrongBinder()
+            if (data.readInt() != 0) TextUtils.CHAR_SEQUENCE_CREATOR.createFromParcel(data) else null
+        }.getOrNull()
+
         const val LEAD_GAP_MS = 2500L
         const val LEAD_IN_MS = 300
         /** Сколько тишины оставить в начале куска после паузы (pause_min): запас перед взрывным согласным. */
