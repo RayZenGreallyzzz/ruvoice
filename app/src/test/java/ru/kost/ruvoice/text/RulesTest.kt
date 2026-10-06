@@ -46,6 +46,9 @@ class RulesTest {
         assertEquals("глава четвёртая", n("глава iv"))
         assertEquals("в лесу и в поле", n("в лесу и в поле"))
         assertEquals("том первый", n("том i"))
+        // кириллица строчными (жалоба 06.10.2026: «хх век» → «ха ха век»); «с» после «глава» — по-прежнему предлог
+        assertEquals("в двадцатом веке, в девятнадцатом веке", n("в хх веке, в хiх веке"))
+        assertEquals("это хх, ха-ха", n("это хх, ха-ха"))
     }
 
     @Test fun romanNumeralsNeedTriggerOrAllCaps() {

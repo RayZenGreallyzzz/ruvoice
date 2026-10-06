@@ -28,8 +28,9 @@ class YoDictTest {
         assertNull(yo.restore("ЕЖИК"))                     // капс — не наш случай
         assertNull(yo.restore("все"))                      // спорные слова в safe.txt не входят
         assertNull(yo.restore("небо"))
-        assertNull(yo.restore("Киев"))                     // «_киёв» — только строчными
-        assertEquals("киёв", yo.restore("киев"))
+        assertNull(yo.restore("Аксенову"))                 // «_аксёнову» — только строчными
+        assertEquals("аксёнову", yo.restore("аксенову"))
+        assertNull(yo.restore("киев"))                     // «-киёв» в yo_drop.txt: город Ки́ев (жалоба 06.10.2026)
     }
 
     @Test fun dropFixes() {  // tools/yo_drop.txt

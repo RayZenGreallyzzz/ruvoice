@@ -340,13 +340,14 @@ object Normalizer {
         return result
     }
 
-    // Валидный римский токен: строгая грамматика; кириллический — только капсом, иначе предлог «с»
-    // после «глава/книга» становится «сотая» (scoped re-review final-fix п.1).
+    // Валидный римский токен: строгая грамматика; кириллический с «с»/«м» — только капсом, иначе предлог «с»
+    // после «глава/книга» становится «сотая» (scoped re-review final-fix п.1). Строчные «хх», «хiх» без «с»/«м»
+    // берём: «хх век» читалось «ха ха век» (жалоба 06.10.2026); без слова-триггера romanAlone их всё равно не тронет.
     private fun romanValue(token: String): Int? {
         val lower = token.lowercase()
         val normalized = latinizeRoman(lower)
         if (!romanStrictRe.matches(normalized) || normalized.isEmpty()) return null
-        if (normalized != lower && !token.all { it.isUpperCase() }) return null
+        if (normalized != lower && !token.all { it.isUpperCase() } && lower.any { it in "см" }) return null
         return romanToInt(normalized)
     }
 
@@ -902,6 +903,11 @@ object Normalizer {
         for (k in listOf("мм²", "мм2", "мм^2")) put(k, sq("миллиметр"))
         for (k in listOf("мм³", "мм3", "мм^3")) put(k, cu("миллиметр"))
         put("км/ч", u("километр", " в час")); put("м/с", u("метр", " в секунду"))
+        // «м/сек», «км/час», «мм рт. ст.» — жалоба пользователя 06.10.2026: читалось «м сек», «ээр тэ ст»; точку в конце
+        // ключа не берём: перед строчной её съедает unitRe, в конце предложения она остаётся точкой предложения
+        put("м/сек", u("метр", " в секунду")); put("км/сек", u("километр", " в секунду")); put("км/час", u("километр", " в час"))
+        for (k in listOf("мм рт. ст", "мм. рт. ст", "мм рт.ст", "мм. рт.ст", "мм рт ст")) put(k, u("миллиметр", " ртутного столба"))
+        for (k in listOf("мм вод. ст", "мм. вод. ст", "мм вод.ст", "мм вод ст")) put(k, u("миллиметр", " водяного столба"))
         put("км", u("километр")); put("km", u("километр")); put("м", u("метр")); put("дм", u("дециметр"))
         put("см", u("сантиметр")); put("cm", u("сантиметр")); put("мм", u("миллиметр")); put("mm", u("миллиметр"))
         put("мкм", u("микрометр")); put("нм", u("нанометр")); put("га", u("гектар")); put("ft", u("фут")); put("yd", u("ярд"))
@@ -1129,13 +1135,15 @@ object Normalizer {
     // слово. «°C»/«° C»/«°С» (кириллическая «С» тоже) — Цельсия, «°F» — по Фаренгейту,
     // одиночный «°» — просто «градус(а/ов)» по plural().
     private val degreeForms = Triple("градус", "градуса", "градусов")
-    private val degreeRe = Regex("""(-?\d+)\s*°\s*(c|f|с)?(?![\p{L}])""", RegexOption.IGNORE_CASE)
+    // «5 гр. С», «5 град. С» — тоже Цельсия, но только с заглавной «С»/«C»: «5 гр. с собой» — граммы (жалоба 06.10.2026)
+    private val degreeRe = Regex("""(-?\d+)\s*(?:°\s*(c|f|с)?|(?-i:гр(?:ад)?\.?\s*([СC])))(?![\p{L}])""", RegexOption.IGNORE_CASE)
     // Предлог перед градусами задаёт падеж слова «градус»: «при -20°C» → «при минус двадцати градусах»
     // (число потом склонит cases() по тому же предлогу).
     private val degreePrepRe = Regex("""(?<![\p{L}])(при|около|до|от|свыше|ниже|выше|к)\s+$""", RegexOption.IGNORE_CASE)
     private val degreeOblique = mapOf(Case.GEN to ("градуса" to "градусов"), Case.DAT to ("градусу" to "градусам"), Case.PRE to ("градусе" to "градусах"))
     private fun degrees(text: String) = degreeRe.replace(text) { m ->
-        val (numStr, unit) = m.destructured
+        val (numStr, sign, gr) = m.destructured
+        val unit = sign.ifEmpty { gr }
         val n = numStr.removePrefix("-").toLongOrNull() ?: return@replace m.value
         val prep = degreePrepRe.find(text.substring(0, m.range.first))?.groupValues?.get(1)?.lowercase()
         val case = when (prep) { null -> null; "при" -> Case.PRE; "к" -> Case.DAT; else -> Case.GEN }

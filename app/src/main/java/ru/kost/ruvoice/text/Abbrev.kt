@@ -91,8 +91,17 @@ object Abbrev {
         "хм", "гм", "гмм", "кхм", "хмм", "тс", "тсс", "тссс", "пст", "псс", "псст", "брр", "шш", "пф", "пфф", "фф", "чш", "цц", "мгм", "бр", "тпр"
     )
 
+    // Строчные с гласными, которые всё равно по буквам: «эвм» читалось словом (жалоба 06.10.2026). Только те, что не
+    // совпадают с живым словом (сверено с AOT и Викисловарем: «ии» — род. от Ия, нет; «мгу», «инн» — редкие формы, да;
+    // «ооо» нет — это и междометие «ооо, как красиво»)
+    private val lowerSpellSet = setOf(
+        "эвм", "мгу", "нло", "пту", "оао", "инн", "цру", "увд", "пво", "лдпр", "кпрф", "фрг", "цска", "егэ",
+        "аэс", "оаэ", "оон", "оэср"
+    )
+
     // с заглавной — только от трёх букв: «Кл», «Вт», «Дж» — единицы, а «Ндс» в начале фразы — аббревиатура
-    private fun lowerAbbr(t: String) = (t.length > 2 || t[0].isLowerCase()) && t.none { it.uppercaseChar() in CYR_VOWELS || it in "йьъЙЬЪ" } &&
+    private fun lowerAbbr(t: String) = t.length > 2 && t.lowercase() in lowerSpellSet ||
+        (t.length > 2 || t[0].isLowerCase()) && t.none { it.uppercaseChar() in CYR_VOWELS || it in "йьъЙЬЪ" } &&
         t.lowercase().toSet().size > 1 && t.lowercase() !in lowerNotAbbr
 
     fun apply(text: String, rules: Rules = Rules()): String {

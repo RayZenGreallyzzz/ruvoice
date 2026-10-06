@@ -25,6 +25,11 @@ class AbbrevTest {
         assertEquals("эмм чэ +эс и ээр +эф", Abbrev.apply("Мчс и рф"))
     }
 
+    @Test fun lowercaseWithVowelsFromSpellList() {
+        // жалоба 06.10.2026: «эвм» строчными читалось словом; междометие «ооо» и «ии» (род. от Ия) не трогаем
+        assertEquals("первые э вэ +эмм, о о +энн и вуз; ооо, ии", Abbrev.apply("первые эвм, оон и вуз; ооо, ии"))
+    }
+
     @Test fun abbreviationsWithVowelsFromSpellList() {
         assertEquals("а э +эс, о а +э, и п+э, у к+а", Abbrev.apply("АЭС, ОАЭ, ИП, УК"))
     }

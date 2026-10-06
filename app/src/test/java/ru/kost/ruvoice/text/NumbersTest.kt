@@ -99,6 +99,20 @@ class NumbersTest {
         assertEquals("пять плюс три", n("5+3"))
     }
 
+    @Test fun weatherUnitsFromUserReport() {
+        // жалоба 06.10.2026: «м/сек» читалось «м сек», «мм. рт. ст.» — «ээр тэ ст»
+        val allowed = "_~|!+,-.:;?абвгдежзийклмнопрстуфхцчшщъыьэюяё–… "
+        assertEquals("ветер до четырнадцати метров в секунду.", Normalizer.prepare("Ветер до 14 м/сек.", allowed))
+        assertEquals("давление семьсот шестьдесят миллиметров ртутного столба.", Normalizer.prepare("Давление 760 мм. рт. ст.", allowed))
+        assertEquals("давление семьсот шестьдесят миллиметров ртутного столба, ветер слабый.",
+            Normalizer.prepare("Давление 760 мм рт.ст., ветер слабый.", allowed))
+        assertEquals("скорость двадцать километров в час.", Normalizer.prepare("Скорость 20 км/час.", allowed))
+        // «гр. С» с заглавной — Цельсия; со строчной «с» — граммы и предлог
+        assertEquals("температура пять градусов цельсия.", Normalizer.prepare("Температура 5 гр. С.", allowed))
+        assertEquals("при минус двадцати градусах цельсия, днём один градус цельсия.", Normalizer.prepare("При -20 град.С, днём 1 гр С.", allowed))
+        assertEquals("взял пять граммов с собой.", Normalizer.prepare("Взял 5 гр. с собой.", allowed))
+    }
+
     @Test fun mainsVoltageAtSentenceEndIsVolts() {
         val allowed = "_~|!+,-.:;?абвгдежзийклмнопрстуфхцчшщъыьэюяё–… "
         assertEquals("напряжение двести двадцать вольт.", Normalizer.prepare("Напряжение 220 В.", allowed))
