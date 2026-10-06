@@ -33,6 +33,15 @@ SKIP |= set('бунгало пидары ведьмовской ведьмовс
 SKIP |= set('провернут пристыжен заточенное заточенного захлестнут тяжеленько повторенного дохнем пахнете'.split())
 
 
+def load_drop():
+    """tools/dict_drop.txt: ключи, которые не кладём в системный словарь ударений (омограф, имя ломает обычное слово)"""
+    path = os.path.join(HERE, 'dict_drop.txt')
+    return {l.split('#', 1)[0].strip() for l in open(path, encoding='utf-8')} - {''} if os.path.exists(path) else set()
+
+
+SKIP |= load_drop()
+
+
 def load_fixes(path=FIXES):
     out = {}
     if not os.path.exists(path): return out

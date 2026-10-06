@@ -212,6 +212,18 @@ def agree(m, prev, prev2, w, e, prev3=None, prev4=None, chain_head=None):
 
 
 _extra = None
+_yo_amb = None
+
+
+def e_copy(phrase):
+    """Е-копия ключа с «ё» («адреса надежные») или None. Замены аппки идут по сырому тексту, до расстановки «ё», и ключ
+    «адреса надёжные» в книге без «ё» молчал. Без копии — если «ё»-слово ключа само омограф по «ё» (eyo_not_safe:
+    «всё/все», «нём/нем»): там «е» в тексте значит другое слово."""
+    global _yo_amb
+    e = phrase.replace('ё', 'е')
+    if e == phrase: return None
+    if _yo_amb is None: import yo_extra; _yo_amb = yo_extra.eyo('eyo_not_safe.txt') | {'всё'}
+    return None if any(t in _yo_amb for t in re.findall(r'[а-яё]+', phrase) if 'ё' in t) else e
 
 
 def extra_pick(w, low):
@@ -220,7 +232,8 @@ def extra_pick(w, low):
     global _extra
     # «*» в фразе — маска словаря замен (буквы, в том числе ничего): «*ым потом» — любое слово на -ым
     # длинная фраза раньше короткой — как в словаре замен аппки («можно и еду» перебивает «еду из»)
-    if _extra is None: _extra = {w: [(re.compile(r'(?<![а-яё-])' + re.escape(p).replace(r'\*', '[а-яё-]*') + r'(?![а-яё-])'), v)
+    if _extra is None: _extra = {w: [(re.compile(r'(?<![а-яё-])(?:' + '|'.join(re.escape(x).replace(r'\*', '[а-яё-]*') for x in (p, e_copy(p)) if x)
+                                                 + r')(?![а-яё-])'), v)
                                      for p, v in sorted(items, key=lambda x: -len(x[0]))] for w, items in load_extra().items()}
     for rx, v in _extra.get(w.replace('ё', 'е'), ()):   # ключи через «е», а модель могла вернуть «л+ёту»
         if rx.search(low): return v

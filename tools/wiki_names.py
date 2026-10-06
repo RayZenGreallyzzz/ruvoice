@@ -130,7 +130,7 @@ def build(min_n, min_form):
     from torch.jit.mobile import _load_for_lite_interpreter
     acc = _load_for_lite_interpreter(os.path.join(ROOT, 'app/src/main/assets/silero/accentor.ptl'))
     d = json.load(open(os.path.join(ROOT, 'app/src/main/assets/silero/silero_ru.json'), encoding='utf-8'))
-    known = set(d['exceptions']) | set(d['homodict']) | set(d.get('gram', {})) | set(stress_fixes.load_fixes())
+    known = set(d['exceptions']) | set(d['homodict']) | set(d.get('gram', {})) | set(stress_fixes.load_fixes()) | stress_fixes.load_drop()
     common = set()  # формы AOT, у которых есть разбор не-имени
     for line in open(os.path.join(ROOT, 'app/build/aot_forms.tsv'), encoding='utf-8'):
         f, *vs = line.rstrip('\n').split('\t')

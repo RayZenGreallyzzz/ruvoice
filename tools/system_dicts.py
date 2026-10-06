@@ -70,16 +70,17 @@ def load_lib(path, skip):
 
 def main():
     import stress_fixes, phrases_extra
-    fixes = stress_fixes.load_fixes()
+    drop = stress_fixes.load_drop()   # tools/dict_drop.txt: и ключи, и е-копии
+    fixes = {w: v for w, v in stress_fixes.load_fixes().items() if w not in drop}
     os.makedirs(os.path.join(ASSETS, 'stress'), exist_ok=True); os.makedirs(os.path.join(ASSETS, 'replace'), exist_ok=True)
     with open(os.path.join(ASSETS, 'stress', 'Системный.txt'), 'w', encoding='utf-8') as o:
         o.write('# Поправки ударений: модель ставит иначе, против неё словари AOT и Викисловаря вместе или словарь Демагога с одним из них (tools/stress_fixes.txt)\n')
         for w, v in sorted(fixes.items()): o.write(f'{w} {v}\n')
-        lib = load_lib(os.path.join(HERE, 'lib_names.txt'), set(fixes))
-        names = {w: v for w, v in stress_fixes.load_fixes(os.path.join(HERE, 'wiki_names.txt')).items() if w not in fixes and w not in lib}
+        lib = load_lib(os.path.join(HERE, 'lib_names.txt'), set(fixes) | drop)
+        names = {w: v for w, v in stress_fixes.load_fixes(os.path.join(HERE, 'wiki_names.txt')).items() if w not in fixes and w not in lib and w not in drop}
         # Ключ через «е» для слова с «ё» ставит «ё» безусловно, поэтому не пишем его, если так пишется другое слово:
         # своя строка с этим ключом («Лебрен» и «Лебрён», «Неман» и «Нёман») или форма AOT («Петра» от «Пётр», не «Пётра»)
-        known = set(fixes) | set(names) | set(lib) | aot_forms() | NAME_E
+        known = set(fixes) | set(names) | set(lib) | aot_forms() | NAME_E | drop
         o.write('# Имена и термины из первых абзацев Википедии, где модель ставит ударение иначе (tools/wiki_names.py); с «ё» — и через «е», если так не пишется другое слово\n')
         for w, v in sorted(names.items()):
             o.write(f'{w} {v}\n')
@@ -105,6 +106,9 @@ def main():
         for w, items in sorted(phrases_extra.load_extra().items()):
             for phrase, var in items:
                 merged[phrase] = re.sub(r'(?<![а-яё])' + re.escape(w) + r'(?![а-яё])', var, merged.get(phrase, phrase), count=1)
+        for phrase in list(merged):   # «адреса надежные» для книг без «ё» (phrases_extra.e_copy); свой е-ключ главнее
+            e = phrases_extra.e_copy(phrase)
+            if e and e not in merged: merged[e] = merged[phrase]
         # «$Толстого» — регистровый ключ Демагога: «$» только в ключе, в замене его быть не должно
         for phrase, out in merged.items(): o.write(f'{phrase} = {out[1:] if phrase.startswith("$") and not phrase.startswith("$$") else out}\n'); n += 1
         o.write('# Ударение на предлоге: слеплено в одно слово, «н+абок» (tools/phrases_clitic.txt)\n')
