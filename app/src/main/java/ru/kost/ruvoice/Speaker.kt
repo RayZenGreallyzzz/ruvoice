@@ -4,7 +4,7 @@ package ru.kost.ruvoice
  * В сервисе класс android.speech.tts.Voice, поэтому не Voice. */
 class Speaker(val name: String, val pack: Pack?, val id: Int, val sym: Symbols, val types: Boolean) {
     companion object {
-        const val DEFAULT = "xenia"
+        const val DEFAULT = "baya"
         /** Пак штатной модели для сборки lite: голые имена («xenia» из старых prefs) ищем в нём. */
         const val RU_PACK = "ru"
         /** Есть ли модель в APK (сборка full). Тесты подменяют. */
@@ -13,14 +13,11 @@ class Speaker(val name: String, val pack: Pack?, val id: Int, val sym: Symbols, 
         private fun of(pack: Pack, speaker: String): Speaker? = pack.speakers[speaker]?.let { Speaker(packName(pack, speaker), pack, it, pack.sym, pack.types) }
 
         fun resolve(name: String?, d: SileroData, packs: List<Pack>): Speaker? {
-            if (name == null) return null
-            val i = name.indexOf('/')
-            if (i < 0) {
-                if (builtin) return d.speakers[name]?.let { Speaker(name, null, it, d.sym, true) }
-                return packs.firstOrNull { it.id == RU_PACK }?.let { of(it, name) }
+            if (name == null || name !in FEMALE) return null
+            if (builtin) {
+                return d.speakers[name]?.let { Speaker(name, null, it, d.sym, true) }
             }
-            val pack = packs.firstOrNull { it.id == name.substring(0, i) } ?: return null
-            return of(pack, name.substring(i + 1))
+            return packs.firstOrNull { it.id == RU_PACK }?.let { of(it, name) }
         }
 
         /** Голос по умолчанию: «xenia» (штатная или из пака ru), иначе первый голос первого пака; null — голосов нет. */
@@ -33,21 +30,31 @@ class Speaker(val name: String, val pack: Pack?, val id: Int, val sym: Symbols, 
         /** Есть ли голос — то же, что resolve(...) != null, но по одним именам штатных голосов (SileroModels.speakers):
          * без разбора всего silero_ru.json. */
         fun exists(name: String?, builtinNames: Set<String>, packs: List<Pack>): Boolean {
-            if (name == null) return false
-            val i = name.indexOf('/')
-            if (i < 0) return if (builtin) name in builtinNames else packs.firstOrNull { it.id == RU_PACK }?.speakers?.containsKey(name) == true
-            return packs.firstOrNull { it.id == name.substring(0, i) }?.speakers?.containsKey(name.substring(i + 1)) == true
+            if (name == null || name !in FEMALE) return false
+            return if (builtin) {
+                name in builtinNames
+            } else {
+                packs.firstOrNull { it.id == RU_PACK }?.speakers?.containsKey(name) == true
+            }
         }
 
-        /** Все имена: штатные по алфавиту (в full), затем по пакам. */
-        fun names(d: SileroData, packs: List<Pack>): List<String> = names(d.speakers.keys, packs)
+        /** Dream Pulse build: expose only the three female stock voices.
+         * Male stock voices and additional packs are intentionally hidden. */
+        private val FEMALE = listOf("baya", "kseniya", "xenia")
+
+        fun names(d: SileroData, packs: List<Pack>): List<String> =
+            names(d.speakers.keys, packs)
+
         fun names(builtinNames: Set<String>, packs: List<Pack>): List<String> =
-            (if (builtin) builtinNames.sorted() else emptyList()) + packs.flatMap { p -> p.speakers.keys.sorted().map { packName(p, it) } }
+            FEMALE.filter { name ->
+                if (builtin) name in builtinNames
+                else packs.firstOrNull { it.id == RU_PACK }?.speakers?.containsKey(name) == true
+            }
 
         /** Голоса того же движка, что [main] — для прямой речи: в памяти одна тройка моделей,
          * перегружать 90 МБ на каждую реплику нельзя. */
         fun sameEngine(main: Speaker, d: SileroData, packs: List<Pack>): List<String> =
-            main.pack?.let { p -> p.speakers.keys.sorted().map { packName(p, it) } } ?: d.speakers.keys.sorted()
+            names(d, packs)
 
         /** Имя для TTS API читалок: «xenia-ru», «marat-ru-cis». Без «/» и «_» (AlReaderX такие не опознаёт),
          * «ru» один раз: голос, язык, пак; в lite «ru/xenia» — «xenia-ru», как в full. */
