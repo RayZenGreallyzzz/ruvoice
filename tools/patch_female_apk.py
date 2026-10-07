@@ -42,6 +42,9 @@ for filename in ("Speaker$Companion.smali", "Speaker.smali", "Prefs.smali"):
         s = p.read_text(errors="ignore")
         before = s
         if filename.startswith("Speaker"):
+            # Kotlin const DEFAULT may be emitted as a field rather than
+            # a const-string inside a method.
+            s = s.replace('DEFAULT:Ljava/lang/String; = "xenia"', 'DEFAULT:Ljava/lang/String; = "baya"')
             s = s.replace('const-string v0, "xenia"', 'const-string v0, "baya"')
             s = s.replace('const-string v1, "xenia"', 'const-string v1, "baya"')
             s = s.replace('const-string v2, "xenia"', 'const-string v2, "baya"')
