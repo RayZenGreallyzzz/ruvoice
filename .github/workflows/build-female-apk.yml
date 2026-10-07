@@ -1,0 +1,70 @@
+name: Build RuVoice Female
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'tools/patch_female_apk.py'
+      - '.github/workflows/build-female-apk.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Download official full APK and Apktool
+        run: |
+          curl -L --fail --retry 3             -o ruvoice-official.apk             https://github.com/kost-t-human/ruvoice-tts/releases/download/v0.18.4/ruvoice-tts-0.18.4.apk
+          curl -L --fail --retry 3             -o apktool.jar             https://github.com/iBotPeaches/Apktool/releases/download/v2.11.1/apktool_2.11.1.jar
+          test -s ruvoice-official.apk
+          test -s apktool.jar
+          ls -lh ruvoice-official.apk apktool.jar
+
+      - name: Decode APK
+        run: |
+          java -jar apktool.jar d -f ruvoice-official.apk -o decoded
+          test -d decoded/smali
+
+      - name: Apply female-only patch
+        run: |
+          python3 tools/patch_female_apk.py decoded
+          grep -R -n 'RuVoice Female' decoded/res/values* | head || true
+
+      - name: Rebuild APK
+        run: |
+          java -jar apktool.jar b decoded -o ruvoice-female-unsigned.apk
+          test -s ruvoice-female-unsigned.apk
+          ls -lh ruvoice-female-unsigned.apk
+
+      - name: Sign APK
+        shell: bash
+        run: |
+          SIGN_PASS="$(openssl rand -hex 18)"
+          keytool -genkeypair -v             -keystore female-release.jks             -storepass "$SIGN_PASS"             -keypass "$SIGN_PASS"             -alias ruvoicefemale             -keyalg RSA             -keysize 2048             -validity 10000             -dname "CN=RuVoice Female,O=Dream Pulse"
+
+          BUILD_TOOLS="$(ls -1 "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          ZIPALIGN="$ANDROID_HOME/build-tools/$BUILD_TOOLS/zipalign"
+          APKSIGNER="$ANDROID_HOME/build-tools/$BUILD_TOOLS/apksigner"
+
+          "$ZIPALIGN" -f -p 4             ruvoice-female-unsigned.apk             ruvoice-female-aligned.apk
+
+          "$APKSIGNER" sign             --ks female-release.jks             --ks-key-alias ruvoicefemale             --ks-pass "pass:$SIGN_PASS"             --key-pass "pass:$SIGN_PASS"             --out ruvoice-female-baya.apk             ruvoice-female-aligned.apk
+
+          "$APKSIGNER" verify --verbose --print-certs ruvoice-female-baya.apk
+          ls -lh ruvoice-female-baya.apk
+
+      - name: Upload female RuVoice APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ruvoice-female-baya-kseniya-xenia-full-apk
+          path: ruvoice-female-baya.apk
+          compression-level: 0
+          retention-days: 14
